@@ -175,29 +175,49 @@ end
 -- @usage
 --   require('notmuch.send').sendmail('/tmp/my_new_email.eml')
 s.sendmail = function(filename)
-  -- Read the email file content
-  local content = vim.fn.readfile(filename)
-
-  -- Build msmtp command with optional logfile
-  local cmd = { 'msmtp', '-t', '--read-envelope-from' }
-  if config.options.logfile then
-    table.insert(cmd, '--logfile=' .. config.options.logfile)
-  end
-
-  local output = vim.fn.system(cmd, content)
-  local exit_code = vim.v.shell_error
-
-  -- Check for errors
-  if exit_code ~= 0 then
-    vim.notify(
-      '❌ Failed to send email\n' .. vim.trim(output),
-      vim.log.levels.ERROR
-    )
+  if not vim.loop.fs_stat(filename) then
+    vim.notify('❌ Email file not found: ' .. filename, vim.log.levels.ERROR)
     return false
   end
 
-  -- Success
-  vim.notify('✅ Email sent successfully', vim.log.levels.INFO)
+  vim.cmd('botright 20split | terminal')
+  local term_win = v.nvim_get_current_win()
+  local term_buf = v.nvim_get_current_buf()
+  v.nvim_buf_set_option(term_buf, 'swapfile', false)
+  v.nvim_buf_set_option(term_buf, 'bufhidden', 'wipe')
+
+  local ok, term_job = pcall(v.nvim_buf_get_var, term_buf, 'terminal_job_id')
+  if not ok then
+    vim.notify('❌ Failed to initialize terminal buffer for msmtp.', vim.log.levels.ERROR)
+    return false
+  end
+
+  local msmtp_parts = { 'msmtp', '-t', '--read-envelope-from' }
+  if config.options.logfile then
+    table.insert(msmtp_parts, '--logfile=' .. config.options.logfile)
+  end
+
+  local function shell_join(parts)
+    local escaped = {}
+    for _, part in ipairs(parts) do
+      table.insert(escaped, vim.fn.shellescape(part))
+    end
+    return table.concat(escaped, ' ')
+  end
+
+  local msmtp_cmd = shell_join(msmtp_parts)
+  local final_cmd = string.format('%s < %s', msmtp_cmd, vim.fn.shellescape(filename))
+
+  vim.notify('📤 Sending email via msmtp (interactive)...', vim.log.levels.INFO)
+
+  local send_status = vim.fn.chansend(term_job, final_cmd .. '\n')
+  if send_status < 0 then
+    vim.notify('❌ Failed to feed msmtp command to terminal.', vim.log.levels.ERROR)
+    return false
+  end
+
+  v.nvim_set_current_win(term_win)
+  v.nvim_command('startinsert')
   return true
 end
 
