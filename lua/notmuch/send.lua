@@ -46,7 +46,7 @@ local build_plain_msg = function(buf)
   -- Extract attributes and remove from main message buffer `buf`
   local attributes, msg = m.get_msg_attributes(main_lines)
   v.nvim_buf_set_lines(buf, 0, -1, false, msg)
-  vim.cmd.write({ bang = true })
+  vim.cmd('silent! write!')
 
   -- Build MIME single-part email:
   -- - Header
@@ -75,7 +75,7 @@ local build_plain_msg = function(buf)
 
   -- Write complete email to file
   v.nvim_buf_set_lines(buf, 0, -1, false, plain_msg)
-  vim.cmd.write({ bang = true })
+  vim.cmd('silent! write!')
 end
 
 -- Builds mime msg from contents of main msg buffer and attachment buffer
@@ -92,7 +92,7 @@ local build_mime_msg = function(buf, buf_attach, compose_filename)
 
   -- Now safe to modify buffer - attachments are validated
   v.nvim_buf_set_lines(buf, 0, -1, false, msg)
-  vim.cmd.write({ bang = true })
+  vim.cmd('silent! write!')
   local mimes = { {
     file = compose_filename,
     type = "text/plain; charset=utf-8",
@@ -117,7 +117,7 @@ local build_mime_msg = function(buf, buf_attach, compose_filename)
   v.nvim_buf_set_lines(buf, 0, -1, false, mime_msg)
 
 
-  vim.cmd.write({ bang = true })
+  vim.cmd('silent! write!')
 end
 
 local build_mime_msg_from_attachments = function(buf, attachment_paths, message_filename)
@@ -131,7 +131,7 @@ local build_mime_msg_from_attachments = function(buf, attachment_paths, message_
 
   -- Safe to modify buffer now
   v.nvim_buf_set_lines(buf, 0, -1, false, msg)
-  vim.cmd.write({ bang = true })
+  vim.cmd('silent! write!')
 
   -- Build MIME parts: main body + attachments
   local mimes = { {
@@ -154,7 +154,7 @@ local build_mime_msg_from_attachments = function(buf, attachment_paths, message_
   local mime_msg = m.make_mime_msg(mime_table)
   v.nvim_buf_set_lines(buf, 0, -1, false, mime_msg)
 
-  vim.cmd.write({ bang = true })
+  vim.cmd('silent! write!')
 end
 
 -- Send a completed message
