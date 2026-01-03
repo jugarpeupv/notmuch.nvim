@@ -292,15 +292,7 @@ end
 --   require('notmuch.send').compose()
 s.compose = function(to)
   to = to or ''
-	local mktemp = vim.system({ 'mktemp', '-t', 'compose.XXXXXX.eml' }):wait()
-	if mktemp.code ~= 0 then
-		vim.notify(
-			'❌ Failed to create temporary file \n' .. mktemp.stderr,
-			vim.log.levels.ERROR
-		)
-		return
-	end
-	local compose_filename = vim.trim(mktemp.stdout)
+  local compose_filename = vim.fn.tempname() .. '-compose.eml'
 
   -- TODO: Add ability to modify default body message and signature
   local headers = {
