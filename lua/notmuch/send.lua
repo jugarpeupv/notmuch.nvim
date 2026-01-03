@@ -180,44 +180,52 @@ s.sendmail = function(filename)
     return false
   end
 
-  vim.cmd('botright 20split | terminal')
-  local term_win = v.nvim_get_current_win()
-  local term_buf = v.nvim_get_current_buf()
-  v.nvim_buf_set_option(term_buf, 'swapfile', false)
-  v.nvim_buf_set_option(term_buf, 'bufhidden', 'wipe')
-
-  local ok, term_job = pcall(v.nvim_buf_get_var, term_buf, 'terminal_job_id')
-  if not ok then
-    vim.notify('❌ Failed to initialize terminal buffer for msmtp.', vim.log.levels.ERROR)
-    return false
-  end
-
-  local msmtp_parts = { 'msmtp', '-t', '--read-envelope-from' }
+  -- Build msmtp command
+  local cmd_parts = { 'msmtp', '-t', '--read-envelope-from' }
   if config.options.logfile then
-    table.insert(msmtp_parts, '--logfile=' .. config.options.logfile)
+    table.insert(cmd_parts, '--logfile=' .. vim.fn.shellescape(config.options.logfile))
   end
+  local msmtp_cmd = table.concat(cmd_parts, ' ') .. ' <' .. vim.fn.shellescape(filename)
 
-  local function shell_join(parts)
-    local escaped = {}
-    for _, part in ipairs(parts) do
-      table.insert(escaped, vim.fn.shellescape(part))
+  vim.notify('📤 Sending email via msmtp...', vim.log.levels.INFO)
+
+  -- Open blank terminal first (reliable PTY handling for interactive input)
+  vim.cmd('botright 15split | terminal')
+  local term_buf = v.nvim_get_current_buf()
+  local term_job = vim.b.terminal_job_id
+
+  -- Set up TermClose autocmd BEFORE sending command to avoid race condition
+  -- Note: Using pattern='*' instead of buffer=term_buf due to Neovim bug where
+  -- buffer-specific TermClose doesn't fire reliably on terminal buffers
+  local aug = v.nvim_create_augroup('NotmuchSendmail_' .. term_buf, { clear = true })
+  v.nvim_create_autocmd('TermClose', {
+    group = aug,
+    pattern = '*',
+    once = true,
+    callback = function(ev)
+      -- Only process TermClose for our specific terminal buffer
+      if ev.buf ~= term_buf then
+        return
+      end
+
+      -- Get exit code from v:event.status
+      local exit_code = vim.v.event.status or -1
+
+      -- Defer notification on success because of buffer close redraw
+      if exit_code == 0 then
+        vim.defer_fn(function() vim.notify('✅ Email sent successfully', vim.log.levels.INFO) end, 500)
+      else
+        vim.notify('❌ Failed to send email (exit code: ' .. exit_code .. ')', vim.log.levels.ERROR)
+      end
     end
-    return table.concat(escaped, ' ')
-  end
+  })
 
-  local msmtp_cmd = shell_join(msmtp_parts)
-  local final_cmd = string.format('%s < %s', msmtp_cmd, vim.fn.shellescape(filename))
+  -- Send the command to the terminal, then exit shell to trigger TermClose
+  vim.fn.chansend(term_job, msmtp_cmd .. ' ; exit\n')
 
-  vim.notify('📤 Sending email via msmtp (interactive)...', vim.log.levels.INFO)
+  -- Start in insert mode for immediate interaction (e.g. passphrase prompt)
+  vim.cmd('startinsert')
 
-  local send_status = vim.fn.chansend(term_job, final_cmd .. '\n')
-  if send_status < 0 then
-    vim.notify('❌ Failed to feed msmtp command to terminal.', vim.log.levels.ERROR)
-    return false
-  end
-
-  v.nvim_set_current_win(term_win)
-  v.nvim_command('startinsert')
   return true
 end
 
