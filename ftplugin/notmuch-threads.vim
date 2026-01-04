@@ -10,10 +10,10 @@ command -buffer -range -complete=custom,notmuch#CompTags -nargs=+ TagRm :call ta
 command -buffer -range -complete=custom,notmuch#CompTags -nargs=+ TagToggle :call tag.thread_toggle_tag(<q-args>, <line1>, <line2>)
 command -buffer -range DelThread :call tag.thread_add_tag("del", <line1>, <line2>) | :call tag.thread_rm_tag("inbox", <line1>, <line2>)
 
-nnoremap <buffer> <silent> <CR> <Cmd>call nm.show_thread()<CR>
-nnoremap <buffer> <silent> r <Cmd>call r.refresh_search_buffer()<CR>
-nnoremap <buffer> <silent> q <Cmd>bwipeout<CR>
-nnoremap <buffer> <silent> % <Cmd>call s.sync_maildir()<CR>
+nnoremap <buffer> <CR> <Cmd>call nm.show_thread()<CR>
+nnoremap <buffer> r <Cmd>call r.refresh_search_buffer()<CR>
+nnoremap <buffer> q <Cmd>bwipeout<CR>
+nnoremap <buffer> % <Cmd>call s.sync_maildir()<CR>
 nnoremap <buffer> + :TagAdd
 xnoremap <buffer> + :TagAdd
 nnoremap <buffer> - :TagRm
@@ -28,7 +28,7 @@ nnoremap <buffer> x <Cmd>TagToggle unread<CR>
 xnoremap <buffer> x <Cmd>TagToggle unread<CR>
 nnoremap <buffer> f <Cmd>TagToggle flagged<CR>j
 xnoremap <buffer> f <Cmd>TagToggle flagged<CR>
-nnoremap <buffer> <silent> C <Cmd>call v:lua.require('notmuch.send').compose()<CR>
+nnoremap <buffer> C <Cmd>call v:lua.require('notmuch.send').compose()<CR>
 nnoremap <buffer> dd <Cmd>DelThread<CR>j
 xnoremap <buffer> d <Cmd>DelThread<CR>
-nnoremap <buffer> <silent> D <Cmd>lua require('notmuch.delete').purge_del()<CR>
+nnoremap <buffer> D <Cmd>lua require('notmuch.delete').purge_del()<CR>
