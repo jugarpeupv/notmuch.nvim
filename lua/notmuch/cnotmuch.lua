@@ -34,6 +34,16 @@ ffi.cdef[[
   typedef int notmuch_status_t;
   typedef int notmuch_database_mode_t;
 
+  /* libnotmuch version 5.4 or above */
+  notmuch_status_t
+  notmuch_database_open_with_config (const char *database_path,
+            notmuch_database_mode_t mode,
+            const char *config_path,
+            const char *profile,
+            notmuch_database_t **database,
+            char **error_message);
+
+  /* older versions, deprecated api */
   notmuch_status_t
   notmuch_database_open (const char *path,
               notmuch_database_mode_t mode,
@@ -148,13 +158,39 @@ ffi.cdef[[
   notmuch_message_tags_to_maildir_flags (notmuch_message_t *message);
 ]]
 
+-- checks wether the current Notmuch version is greater or equal to the one provided
+---@version_str should be the output of 'notmuch --version'
+---@req_major the minimum major version required
+---@req_minor the minimum minor versino required
+local function check_notmuch_version(version_str, req_major, req_minor)
+  local major, minor = version_str:match("(%d+)%.?(%d*)")
+  major = tonumber(major) or 0
+  minor = tonumber(minor) or 0
+
+  if major > req_major then
+    return true
+  elseif major < req_major then
+    return false
+  else
+    return minor >= req_minor
+  end
+end
+
 -- Opens a Notmuch database. Entry point into the api.
 --
 -- @path: Directory where the Notmuch database is stored.
 -- @mode: Read/write mode. Either 0 for read or 1 for read/write.
 local function open_database(path, mode)
   local db = ffi.new('notmuch_database_t*[1]')
-  local res = nm.notmuch_database_open(path, mode, db)
+  local res
+  local obj = vim.system(({ "notmuch", "--version" })):wait()
+  assert(obj.code == 0, 'Error getting notmuch version: ' .. obj.stderr)
+  if check_notmuch_version(obj.stdout, 0, 32) then
+    res = nm.notmuch_database_open_with_config(path, mode, nil, nil, db, nil)
+  else
+    print("using notmuch pre-0.32")
+    res = nm.notmuch_database_open(path, mode, db)
+  end
   assert(res == 0, 'Error opening database with err=' .. res)
   return {
     _db = db[0],
