@@ -21,14 +21,14 @@ xnoremap <buffer> - :TagRm
 nnoremap <buffer> = :TagToggle
 xnoremap <buffer> = :TagToggle
 nnoremap <buffer> a <Cmd>TagToggle inbox<CR>j
-xnoremap <buffer> a <Cmd>TagToggle inbox<CR>
+xnoremap <buffer> a :TagToggle inbox<CR>
 nnoremap <buffer> A <Cmd>TagRm inbox unread<CR>j
-xnoremap <buffer> A <Cmd>TagRm inbox unread<CR>
+xnoremap <buffer> A :TagRm inbox unread<CR>
 nnoremap <buffer> x <Cmd>TagToggle unread<CR>
-xnoremap <buffer> x <Cmd>TagToggle unread<CR>
+xnoremap <buffer> x :TagToggle unread<CR>
 nnoremap <buffer> f <Cmd>TagToggle flagged<CR>j
-xnoremap <buffer> f <Cmd>TagToggle flagged<CR>
+xnoremap <buffer> f :TagToggle flagged<CR>
 nnoremap <buffer> C <Cmd>call v:lua.require('notmuch.send').compose()<CR>
 nnoremap <buffer> dd <Cmd>DelThread<CR>j
-xnoremap <buffer> d <Cmd>DelThread<CR>
+xnoremap <buffer> d :DelThread<CR>
 nnoremap <buffer> D <Cmd>lua require('notmuch.delete').purge_del()<CR>
