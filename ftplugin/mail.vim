@@ -17,7 +17,7 @@ if match(bufname("%"), "^thread:") != -1
 	nnoremap <buffer> C <Cmd>call v:lua.require('notmuch.send').compose()<CR>
 	nnoremap <buffer> R <Cmd>call v:lua.require('notmuch.send').reply()<CR>
 	nnoremap <buffer> q <Cmd>bwipeout<CR>
-	nnoremap <buffer> + :TagAdd
-	nnoremap <buffer> - :TagRm
-	nnoremap <buffer> = :TagToggle
+	nnoremap <buffer> + :TagAdd<Space>
+	nnoremap <buffer> - :TagRm<Space>
+	nnoremap <buffer> = :TagToggle<Space>
 endif

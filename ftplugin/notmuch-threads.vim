@@ -14,12 +14,12 @@ nnoremap <buffer> <CR> <Cmd>call nm.show_thread()<CR>
 nnoremap <buffer> r <Cmd>call r.refresh_search_buffer()<CR>
 nnoremap <buffer> q <Cmd>bwipeout<CR>
 nnoremap <buffer> % <Cmd>call s.sync_maildir()<CR>
-nnoremap <buffer> + :TagAdd
-xnoremap <buffer> + :TagAdd
-nnoremap <buffer> - :TagRm
-xnoremap <buffer> - :TagRm
-nnoremap <buffer> = :TagToggle
-xnoremap <buffer> = :TagToggle
+nnoremap <buffer> + :TagAdd<Space>
+xnoremap <buffer> + :TagAdd<Space>
+nnoremap <buffer> - :TagRm<Space>
+xnoremap <buffer> - :TagRm<Space>
+nnoremap <buffer> = :TagToggle<Space>
+xnoremap <buffer> = :TagToggle<Space>
 nnoremap <buffer> a <Cmd>TagToggle inbox<CR>j
 xnoremap <buffer> a :TagToggle inbox<CR>
 nnoremap <buffer> A <Cmd>TagRm inbox unread<CR>j
