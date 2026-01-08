@@ -176,6 +176,9 @@ local function check_notmuch_version(version_str, req_major, req_minor)
   end
 end
 
+-- Module-level cache for API version detection
+local has_new_api = false
+
 -- Opens a Notmuch database. Entry point into the api.
 --
 -- @path: Directory where the Notmuch database is stored.
@@ -183,14 +186,14 @@ end
 local function open_database(path, mode)
   local db = ffi.new('notmuch_database_t*[1]')
   local res
-  local obj = vim.system(({ "notmuch", "--version" })):wait()
-  assert(obj.code == 0, 'Error getting notmuch version: ' .. obj.stderr)
-  if check_notmuch_version(obj.stdout, 0, 32) then
+
+  -- Use cached API version detection result
+  if has_new_api then
     res = nm.notmuch_database_open_with_config(path, mode, nil, nil, db, nil)
   else
-    print("using notmuch pre-0.32")
     res = nm.notmuch_database_open(path, mode, db)
   end
+
   assert(res == 0, 'Error opening database with err=' .. res)
   return {
     _db = db[0],
@@ -365,6 +368,19 @@ function count_messages(query)
   assert(res == 0, 'Error counting messages. err=' .. res)
   return count[0]
 end
+
+-- Detect notmuch version once at module load and cache the result
+local function detect_notmuch_api()
+  local obj = vim.system(({ "notmuch", "--version" })):wait()
+  assert(obj.code == 0, 'Error getting notmuch version: ' .. obj.stderr)
+  has_new_api = check_notmuch_version(obj.stdout, 0, 40)
+  if not has_new_api then
+    vim.notify('notmuch version <0.32, DEPRECATED API used. Please consider upgrading', vim.log.levels.WARN)
+  end
+end
+
+-- Run detection once at module load
+detect_notmuch_api()
 
 return open_database
 
