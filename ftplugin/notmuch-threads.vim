@@ -32,3 +32,4 @@ nnoremap <buffer> C <Cmd>call v:lua.require('notmuch.send').compose()<CR>
 nnoremap <buffer> dd <Cmd>DelThread<CR>j
 xnoremap <buffer> d :DelThread<CR>
 nnoremap <buffer> D <Cmd>lua require('notmuch.delete').purge_del()<CR>
+nnoremap <buffer> o <Cmd>call nm.reverse_sort_threads()<CR>

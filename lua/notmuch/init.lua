@@ -82,7 +82,7 @@ nm.search_terms = function(search, jumptothreadid)
   v.nvim_buf_set_name(buf, search)
   v.nvim_win_set_buf(0, buf)
 
-  local hint_text = "Hints: <Enter>: Open thread | q: Close | r: Refresh | %: Sync maildir | a: Archive | A: Archive and Read | +/-/=: Add, remove, toggle tag | dd: Delete"
+  local hint_text = "Hints: <Enter>: Open thread | q: Close | r: Refresh | %: Sync maildir | a: Archive | A: Archive and Read | +/-/=: Add, remove, toggle tag | o: Sort | dd: Delete"
   v.nvim_buf_set_lines(buf, 0, 2, false, { hint_text , "" })
 
   -- Async notmuch search to make the UX non blocking
@@ -97,6 +97,34 @@ nm.search_terms = function(search, jumptothreadid)
   v.nvim_win_set_cursor(0, { 1, 0 })
   v.nvim_buf_set_lines(buf, -2, -1, true, {})
   vim.bo.filetype = "notmuch-threads"
+  vim.bo.modifiable = false
+end
+
+--- Reverses the threads sorting in `notmuch-threads` buffer
+--
+-- This function reverses the lines of the `notmuch-threads` buffer which result
+-- from the `search_terms()` function. It effectively toggles the sorting of
+-- these threads between newest-first and oldest-first.
+--
+-- We do this instantly instead of running `notmuch search --sort` to save time
+-- especially when it comes to large results with thousands of thread.
+nm.reverse_sort_threads = function()
+  -- Get all lines, disregarding top-level hints line
+  local lines = v.nvim_buf_get_lines(0, 0, -1, false)
+  local hints = table.remove(lines, 1)
+
+  -- Reverse lines
+  local reversed = {}
+  for i = #lines, 1, -1 do
+    table.insert(reversed, lines[i])
+  end
+
+  -- Re-attach hints line
+  table.insert(reversed, 1, hints)
+
+  -- Replace lines in buffer
+  vim.bo.modifiable = true
+  v.nvim_buf_set_lines(0, 0, -1, false, reversed)
   vim.bo.modifiable = false
 end
 
