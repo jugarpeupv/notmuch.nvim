@@ -88,7 +88,7 @@ ui.switch_to_buffer = function(buf)
 end
 
 ui.create_sync_buffer = function()
-	vim.cmd("10new")
+	vim.cmd("botright 10new")
 	local buf = vim.api.nvim_get_current_buf()
 	vim.bo[buf].buftype = "nofile"
 	vim.bo[buf].bufhidden = "wipe"
@@ -141,7 +141,7 @@ s.sync_maildir = function()
 		end
 
 		-- Open terminal split
-		vim.cmd('topleft 15split | terminal')
+		vim.cmd('botright 15split | terminal')
 		local term_buf = vim.api.nvim_get_current_buf()
 		local term_job = vim.b.terminal_job_id
 		current_sync_job = term_job
