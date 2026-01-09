@@ -50,7 +50,7 @@ the familiar Vim interface and motions.
 
 You can install Notmuch.nvim using your favorite NeoVim plugin manager.
 
-#### Using `lazy.nvim`:
+### Using `lazy.nvim`:
 ```lua
 {
     'yousefakbar/notmuch.nvim',
@@ -62,7 +62,27 @@ You can install Notmuch.nvim using your favorite NeoVim plugin manager.
 }
 ```
 
-#### Manual Installation:
+### Using `vim.pack`:
+
+If you are using `nvim` v0.12, or above, you can install using the builtin
+package manager:
+
+```lua
+vim.pack.add({
+    'https://github.com/yousefakbar/notmuch.nvim',
+})
+
+-- Or to pin to a specific tag/version:
+
+vim.pack.add({
+  {
+    src = 'https://github.com/yousefakbar/notmuch.nvim',
+    version = 'v0.2.0', -- Or git commit, etc.
+  },
+})
+```
+
+### Manual Installation:
 Clone the repository and add the directory to your `runtimepath`:
 ```bash
 git clone https://github.com/yousefakbar/notmuch.nvim.git

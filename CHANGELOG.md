@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- Installation instructions for Neovim v0.12+ builtin package manager (`vim.pack.add`)
+
 ## [0.2.0] - 2026-01-09
 
 ### Added
