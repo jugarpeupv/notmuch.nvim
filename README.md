@@ -94,7 +94,7 @@ You can configure several global options to tailor the plugin's behavior:
 
 | Option             | Description                                                                     | Default                         |
 | :----------------- | :-----------------------------------------------------------------------------: | :------------------------------ |
-| `notmuch_db_path`  | Directory containing the `.notmuch/` dir                                        | `$HOME/Mail`                    |
+| `notmuch_db_path`  | Directory containing the `.notmuch/` dir                                        | From `notmuch config`           |
 | `maildir_sync_cmd` | Bash command to run for syncing maildir                                         | `mbsync -a`                     |
 | `sync.sync_mode`   | Async mode for the `maildir_sync_cmd`                                           | `buffer`                        |
 | `keymaps`          | Configure any (WIP) command's keymap                                            | See `config.lua`[1]             |
