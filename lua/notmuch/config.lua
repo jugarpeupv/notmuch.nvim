@@ -88,6 +88,11 @@ C.setup = function(opts)
     return false
   end
 
+  -- If `notmuch_db_path` is set by user, expand it in case of tildes, etc.
+  if options.notmuch_db_path then
+    options.notmuch_db_path = vim.fn.expand(options.notmuch_db_path)
+  end
+
   C.options = vim.tbl_deep_extend('force', defaults, options)
   return true
 end
