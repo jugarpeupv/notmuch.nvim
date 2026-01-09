@@ -88,7 +88,7 @@ ui.switch_to_buffer = function(buf)
 end
 
 ui.create_sync_buffer = function()
-	vim.cmd("10new")
+	vim.cmd("botright 10new")
 	local buf = vim.api.nvim_get_current_buf()
 	vim.bo[buf].buftype = "nofile"
 	vim.bo[buf].bufhidden = "wipe"
@@ -108,7 +108,7 @@ s.sync_maildir = function()
 			ui.switch_to_buffer(buf)
 			vim.notify("Sync is already running. Showing existing sync buffer.", vim.log.levels.WARN)
 		else
-			vim.notify("Sync is already running but no buffer found.", vim.log.levels.WARN)
+			vim.notify("Sync is already running.", vim.log.levels.WARN)
 		end
 		return
 	end
@@ -128,6 +128,56 @@ s.sync_maildir = function()
 				end
 			end,
 		})
+		return
+	end
+
+	if sync_mode == "terminal" then
+		vim.notify("Syncing and reindexing your Maildir...", vim.log.levels.INFO)
+
+		-- Check for concurrent sync before opening terminal
+		if current_sync_job then
+			vim.notify("Sync is already running.", vim.log.levels.WARN)
+			return
+		end
+
+		-- Open terminal split
+		vim.cmd('botright 15split | terminal')
+		local term_buf = vim.api.nvim_get_current_buf()
+		local term_job = vim.b.terminal_job_id
+		current_sync_job = term_job
+
+		-- Set up TermClose autocmd BEFORE sending command (race condition protection)
+		local aug = vim.api.nvim_create_augroup('NotmuchSync_' .. term_buf, { clear = true })
+		vim.api.nvim_create_autocmd('TermClose', {
+			group = aug,
+			pattern = '*',  -- Workaround for Neovim bug with buffer-specific TermClose
+			once = true,
+			callback = function(ev)
+				-- Only process TermClose for our specific terminal buffer
+				if ev.buf ~= term_buf then
+					return
+				end
+
+				current_sync_job = nil
+				local exit_code = vim.v.event.status or -1
+
+				-- Defer notification on success to avoid buffer close redraw issues
+				if exit_code == 0 then
+					vim.defer_fn(function()
+						vim.notify('✅ Maildir sync finished successfully!', vim.log.levels.INFO)
+					end, 500)
+				else
+					vim.notify('❌ Maildir sync failed (exit code: ' .. exit_code .. ')', vim.log.levels.ERROR)
+				end
+			end
+		})
+
+		-- Send command to terminal and exit shell after completion
+		vim.fn.chansend(term_job, sync_cmd .. ' ; exit\n')
+
+		-- Start in insert mode for immediate interaction (e.g., passphrase prompt)
+		vim.cmd('startinsert')
+
 		return
 	end
 

@@ -50,7 +50,10 @@ C.defaults = function()
     open_cmd = 'xdg-open',
     logfile = nil,
     sync = {
-      sync_mode = "buffer",
+      sync_mode = "buffer",  -- "background" | "buffer" | "terminal"
+      --   background: Silent sync in background, notifications only
+      --   buffer: Structured async output in dedicated buffer, no stdin (default)
+      --   terminal: Real PTY terminal with stdin support for GPG/OAuth prompts
     },
     open_handler = function(attachment)
       require('notmuch.handlers').default_open_handler(attachment)
