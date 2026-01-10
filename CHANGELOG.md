@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- FFI bindings for `notmuch_database_open_with_config` (notmuch 5.4+/API 0.32+)
+- Automatic notmuch version detection at module load with result caching
+- Warning notification when using deprecated API (notmuch < 0.32)
+
+### Changed
+
+- Database opening now uses `notmuch_database_open_with_config` when available, with fallback to deprecated `notmuch_database_open`
+- Version detection runs once at module load for improved performance
+
+### Fixed
+
+- Correct notmuch version number detection (checks API version 0.32 instead of library version 5.4)
+
 ### Documentation
 
 - Installation instructions for Neovim v0.12+ builtin package manager (`vim.pack.add`)
