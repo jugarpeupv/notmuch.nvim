@@ -30,7 +30,13 @@ nm.setup = function(opts)
 
   -- Set up the main entry point command :Notmuch
   vim.cmd[[command Notmuch :lua require('notmuch').notmuch_hello()]]
-  vim.cmd[[command Inbox :lua require('notmuch').search_terms("tag:inbox")]]
+	vim.api.nvim_create_user_command("Inbox", function(arg)
+		if arg.fargs ~= {} then
+			nm.search_terms("tag:inbox to:" .. arg.args)
+		else
+			nm.search_terms("tag:inbox")
+		end
+	end, { desc = "Open inbox", nargs = "?", complete = "custom,notmuch#CompAddress" })
 end
 
 -- Launch `notmuch.nvim` landing page
