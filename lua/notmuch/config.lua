@@ -55,6 +55,7 @@ C.defaults = function()
       --   buffer: Structured async output in dedicated buffer, no stdin (default)
       --   terminal: Real PTY terminal with stdin support for GPG/OAuth prompts
     },
+    suppress_deprecation_warning = false, -- Used for API deprecation warning suppression
     open_handler = function(attachment)
       require('notmuch.handlers').default_open_handler(attachment)
     end,

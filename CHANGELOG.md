@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FFI bindings for `notmuch_database_open_with_config` (notmuch 5.4+/API 0.32+)
 - Automatic notmuch version detection at module load with result caching
 - Warning notification when using deprecated API (notmuch < 0.32)
+- Configuration option `suppress_deprecation_warning` to suppress API deprecation warnings
 
 ### Changed
 

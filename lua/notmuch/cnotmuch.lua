@@ -19,6 +19,7 @@
 -- [1]: https://gist.github.com/Elv13/1691174c1f6d784ce6fef6d0a1bb0908
 
 local c = {}
+local config = require('notmuch.config')
 local ffi = require("ffi")
 local nm = ffi.load("notmuch")
 
@@ -374,8 +375,12 @@ local function detect_notmuch_api()
   local obj = vim.system(({ "notmuch", "--version" })):wait()
   assert(obj.code == 0, 'Error getting notmuch version: ' .. obj.stderr)
   has_new_api = check_notmuch_version(obj.stdout, 0, 32)
-  if not has_new_api then
-    vim.notify('notmuch version <0.32, DEPRECATED API used. Please consider upgrading', vim.log.levels.WARN)
+  if not has_new_api and not config.options.suppress_deprecation_warning then
+    vim.notify(
+      "notmuch.nvim: Using deprecated API (notmuch <0.32). Please upgrade.\n" ..
+      "To suppress: require('notmuch').setup({ suppress_deprecation_warning = true })",
+      vim.log.levels.WARN
+    )
   end
 end
 
