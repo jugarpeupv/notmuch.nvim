@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- New `thread.lua` module for JSON-based thread display parsing
+- Per-message tag display in thread view header
+- Attachment count indicator (📎) in message headers
+- MIME part markers in message body for attachments and HTML content
 - FFI bindings for `notmuch_database_open_with_config` (notmuch 5.4+/API 0.32+)
 - Automatic notmuch version detection at module load with result caching
 - Warning notification when using deprecated API (notmuch < 0.32)
@@ -18,8 +22,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Thread display now uses `notmuch show --format=json` instead of raw text parsing
+  - More robust parsing immune to text format changes
+  - Proper handling of complex MIME structures (multipart/mixed, multipart/alternative)
+  - Concatenates multiple inline text parts (body, signatures, mailing list footers)
 - Database opening now uses `notmuch_database_open_with_config` when available, with fallback to deprecated `notmuch_database_open`
 - Version detection runs once at module load for improved performance
+
+### Deprecated
+
+- `util.process_msgs_in_thread()` - replaced by `thread.show_thread()` with JSON parsing
 
 ### Fixed
 

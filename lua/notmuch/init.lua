@@ -172,10 +172,9 @@ nm.show_thread = function(s)
   local buf = v.nvim_create_buf(true, true)
   v.nvim_buf_set_name(buf, "thread:" .. threadid)
   v.nvim_win_set_buf(0, buf)
-  v.nvim_command("silent 0read! notmuch show --exclude=false thread:" .. threadid .. " | col")
 
-  -- Clean up the messages in the thread to display in UI friendly way
-  require('notmuch.util').process_msgs_in_thread(buf)
+  local lines = require('notmuch.thread').show_thread(threadid)
+  v.nvim_buf_set_lines(buf, 0, -1, false, lines)
 
   -- Insert hint message at the top of the buffer
   local hint_text =
@@ -183,9 +182,9 @@ nm.show_thread = function(s)
   v.nvim_buf_set_lines(buf, 0, 0, false, { hint_text, "" })
 
   -- Place cursor at head of buffer and prepare display and disable modification
-  v.nvim_buf_set_lines(buf, -3, -1, true, {})
-  v.nvim_win_set_cursor(0, { 1, 0 })
-  vim.bo.filetype = "mail"
+  v.nvim_buf_set_lines(buf, -2, -1, true, {})
+  v.nvim_win_set_cursor(0, { 1, 0})
+  vim.bo.filetype="mail"
   vim.bo.modifiable = false
 end
 
