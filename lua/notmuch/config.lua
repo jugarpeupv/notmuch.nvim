@@ -56,6 +56,7 @@ C.defaults = function()
       --   terminal: Real PTY terminal with stdin support for GPG/OAuth prompts
     },
     suppress_deprecation_warning = false, -- Used for API deprecation warning suppression
+    render_html_body = false, -- True means prioritize displaying rendered HTML
     open_handler = function(attachment)
       require('notmuch.handlers').default_open_handler(attachment)
     end,

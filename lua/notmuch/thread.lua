@@ -1,4 +1,32 @@
+--- notmuch.thread -- Thread display module for notmuch.nvim
+---
+--- Fetches thread data via `notmuch show --format=json` and transforms it into
+--- buffer lines with fold markers, formatted headers, and rendered body
+--- content.
+---
+--- Handles MIME tree walking for multipart messages, with optional HTML
+--- rendering via w3m when `config.options.render_html_body` is enabled.
+---
+--- Anatomy of a thread object from `notmuch show --format=json` output:
+---
+--- [                    -- Array of threads
+---   [                  -- Thread (single element for `notmuch show thread:X`)
+---     [                -- Message tree (array of messages at same depth)
+---       {              -- Message object (root message)
+---         "id": "...",
+---         "headers": {...},
+---         "body": [...],
+---       },
+---       [...]          -- Replies array (recursive nodes)
+---     ]
+---   ]
+--- ]
+---
+--- TL;DR:
+--- json[1][1] is the root *node* -> [message_object, [replies_array]]
+
 local T = {}
+local config = require('notmuch.config')
 
 --- Recursively checks MIME tree for parts with filenames (attachments)
 --- @param body table Array of body part objects from notmuch JSON output
@@ -88,6 +116,32 @@ local function format_headers(msg, depth)
   return lines
 end
 
+--- Renders HTML body content and returns as lines
+--- @param raw string Raw HTML content from email body part
+--- @return table rendered Rendered HTML ready for buffer display
+local function render_html(raw)
+  -- Check if `w3m` is installed and in $PATH for user (otherwise render fails)
+  if vim.fn.executable('w3m') ~= 1 then
+    return { "[ w3m not installed - press 'a' to view attachments ]" }
+  end
+
+  -- Run w3m to render the `raw` HTML content
+  local ok, res = pcall(function()
+    return vim.system({ 'w3m', '-T', 'text/html', '-dump' }, {
+      text = true,
+      stdin = raw,
+    }):wait()
+  end)
+
+  -- Check for error. Return UX hint rather than vim error
+  if not ok or res.code ~= 0 then
+    return { "[ Failed to render HTML - press 'a' to view attachments ]" }
+  end
+
+  -- Return table of rendered HTML with trimmed empty lines at start/end
+  return vim.split(res.stdout or '', '\n', { plain = true, trimempty = true })
+end
+
 --- Processes the MIME body parts and adds them to buffer lines
 ---
 --- Walks the MIME tree and handles each part type appropriately:
@@ -108,7 +162,6 @@ local function process_body_parts(body)
       if content_type:match('^multipart/') then
         -- Multipart envelope -> recurse through child parts
         walk(part.content, content_type)
-
       elseif part.filename then
         -- Definitely an attachment -> display to user and hint for viewing
         table.insert(lines, string.format(
@@ -116,24 +169,29 @@ local function process_body_parts(body)
           part.filename, content_type
         ))
         table.insert(lines, "")
-
       elseif content_type == 'text/plain' and part.content then
-        -- Always show inline plain text (including signatures, etc.)
-        for _, line in ipairs(vim.split(part.content, '\n', { plain = true })) do
-          table.insert(lines, line)
-        end
-
-      elseif content_type == 'text/html' then
-        -- In multipart/alternative, skip HTML (plain text is preferred)
-        -- Otherwise, show marker for standalone HTML
-        if parent_type == 'multipart/alternative' then
-          table.insert(lines, "[ text/html (alternative) - press 'a' to view ]")
-          table.insert(lines, "")
-        else
-          table.insert(lines, "[ text/html (hidden) - press 'a' to view ]")
+        if parent_type ~= 'multipart/alternative' or not config.options.render_html_body then
+          -- Always show inline plain text (including signatures, etc.)
+          for _, line in ipairs(vim.split(part.content, '\n', { plain = true })) do
+            table.insert(lines, line)
+          end
           table.insert(lines, "")
         end
-
+      elseif content_type == 'text/html' and part.content then
+        if not config.options.render_html_body then
+          -- User prefers plain text output. Hide HTML content with hint marker
+          if parent_type == 'multipart/alternative' then
+            table.insert(lines, "[ text/html (alternative) - press 'a' to view ]")
+            table.insert(lines, "")
+          else
+            table.insert(lines, "[ text/html (hidden) - press 'a' to view ]")
+            table.insert(lines, "")
+          end
+        else -- config.options.render_html_body == true
+          local html_content = render_html(part.content)
+          vim.list_extend(lines, html_content)
+          table.insert(lines, "")
+        end
       elseif part.content then
         table.insert(lines, string.format("[ %s (inline) - press 'a' to view attachments ]", content_type))
         table.insert(lines, "")
@@ -176,12 +234,20 @@ local function build_message_lines(msg_node, depth, lines)
   end
 end
 
+--- Fetches and renders a thread as buffer lines
+---
+--- Runs `notmuch show --format=json` to fetch the thread, parses the JSON
+--- output, and transforms it into formatted buffer lines with fold markers.
+---
+--- @param threadid string Thread ID (without 'thread:' prefix)
+--- @return table lines Array of strings ready for buffer display
 T.show_thread = function(threadid)
   -- Run `notmuch show` with JSON format
   local res = vim.system({
     'notmuch', 'show',
     '--format=json',
     '--exclude=false',
+    '--include-html',
     'thread:' .. threadid
   }):wait()
 
@@ -214,22 +280,6 @@ T.show_thread = function(threadid)
     return { "Thread data is malformed or empty" }
   end
 
-  -- Extract root message node:
-  -- [                    -- Array of threads
-  --   [                  -- Thread (single element for `notmuch show thread:X`)
-  --     [                -- Message tree (array of messages at same depth)
-  --       {              -- Message object (root message)
-  --         "id": "...",
-  --         "headers": {...},
-  --         "body": [...],
-  --         "replies": [...]
-  --       }
-  --     ]
-  --   ]
-  -- ]
-  --
-  -- TL;DR:
-  -- json[1][1] is the root node -> [message_object, [replies_array]]
   local root_node = json[1][1]
 
   -- Build buffer lines

@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- HTML body rendering via `w3m` for `multipart/alternative` emails
+  - New `render_html_body` config option (default: `false`)
+  - Graceful fallback when `w3m` is not installed
 - New `thread.lua` module for JSON-based thread display parsing
 - Per-message tag display in thread view header
 - Attachment count indicator (📎) in message headers
@@ -26,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - More robust parsing immune to text format changes
   - Proper handling of complex MIME structures (multipart/mixed, multipart/alternative)
   - Concatenates multiple inline text parts (body, signatures, mailing list footers)
+  - Now fetches HTML content (`--include-html`) for optional rendering
 - Database opening now uses `notmuch_database_open_with_config` when available, with fallback to deprecated `notmuch_database_open`
 - Version detection runs once at module load for improved performance
 
