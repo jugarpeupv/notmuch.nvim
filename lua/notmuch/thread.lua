@@ -24,9 +24,22 @@
 ---
 --- TL;DR:
 --- json[1][1] is the root *node* -> [message_object, [replies_array]]
+---
+--- During the fetching and parsing of thread JSON data, some useful information
+--- is stored in buffer-local variables for user extensibility (e.g. statusline
+--- integration and so on):
+---
+--- `vim.b.notmuch_thread`          : Current thread metadata
+--- `vim.b.notmuch_thread_messages` : Array of message objects inside thread
+--- `vim.b.notmuch_current`         : Cursor-tracked current message data
+--- `vim.b.notmuch_status`          : Formatted string for quick statusline
 
 local T = {}
 local config = require('notmuch.config')
+
+--------------------------------------------------------------------------------
+-- PRIVATE: Thread parsing helpers
+--------------------------------------------------------------------------------
 
 --- Recursively checks MIME tree for parts with filenames (attachments)
 --- @param body table Array of body part objects from notmuch JSON output
@@ -207,10 +220,25 @@ end
 --- @param msg_node table Message node from notmuch JSON: [msg, [replies]]
 --- @param depth number Message depth in the thread chain (0 for root message)
 --- @param lines table Accumulator array for buffer lines (modified in place)
-local function build_message_lines(msg_node, depth, lines)
+--- @param metadata table Accumulator array for thread metadata for buffer var
+local function build_message_lines(msg_node, depth, lines, metadata)
   -- Unpack msg_node into message and list of replies
   local msg = msg_node[1]
   local replies = msg_node[2] or {}
+
+  -- Update thread metadata with this message metadata
+  metadata.message_count = metadata.message_count + 1
+
+  -- Update tags seen in the thread
+  for _, tag in ipairs(msg.tags) do
+    metadata._tags_set[tag] = true
+  end
+
+  -- Add author into metadata list
+  local from = (msg.headers or {}).From
+  if from and from ~= "" then
+    metadata._authors_seen[from] = true
+  end
 
   -- Parse and prepare header lines
   local headers = format_headers(msg, depth)
@@ -229,10 +257,20 @@ local function build_message_lines(msg_node, depth, lines)
   -- Process replies recursively
   if replies and #replies > 0 then
     for _, reply_node in ipairs(replies) do
-      build_message_lines(reply_node, depth + 1, lines)
+      build_message_lines(reply_node, depth + 1, lines, metadata)
     end
   end
 end
+
+--------------------------------------------------------------------------------
+-- PRIVATE: Buffer variable builders
+--------------------------------------------------------------------------------
+
+
+
+--------------------------------------------------------------------------------
+-- PUBLIC: Show thread main entry point
+--------------------------------------------------------------------------------
 
 --- Fetches and renders a thread as buffer lines
 ---
@@ -241,6 +279,7 @@ end
 ---
 --- @param threadid string Thread ID (without 'thread:' prefix)
 --- @return table lines Array of strings ready for buffer display
+--- @return table thread_metadata Thread metadata to be exported to buffer var
 T.show_thread = function(threadid)
   -- Run `notmuch show` with JSON format
   local res = vim.system({
@@ -257,12 +296,12 @@ T.show_thread = function(threadid)
       'Error running notmuch show: ' .. (res.stderr or 'unknown error'),
       vim.log.levels.ERROR
     )
-    return { "Error: Could not fetch thread data" }
+    return { "Error: Could not fetch thread data" }, {}
   end
 
   -- Check for empty result output
   if res.stdout == "[]\n" or res.stdout == "" then
-    return { "Thread not found or empty" }
+    return { "Thread not found or empty" }, {}
   end
 
   -- Parse/decode JSON output
@@ -272,21 +311,43 @@ T.show_thread = function(threadid)
       'Failed to parse thread JSON: ' .. tostring(json),
       vim.log.levels.ERROR
     )
-    return { "Error: Could not parse thread data" }
+    return { "Error: Could not parse thread data" }, {}
   end
 
   -- Validate JSON structure
   if not json or #json == 0 or not json[1] or #json[1] == 0 or not json[1][1] then
-    return { "Thread data is malformed or empty" }
+    return { "Thread data is malformed or empty" }, {}
   end
 
   local root_node = json[1][1]
+  local root_msg = root_node[1]
 
-  -- Build buffer lines
+  -- Initialize `vim.b.notmuch_thread` accumulator
+  local thread_metadata = {
+    id = threadid,
+    subject = (root_msg.headers or {}).Subject or "[No subject]",
+    date_relative = root_msg.date_relative or "",
+    message_count = 0,
+    tags = {},
+    _tags_set = {},     -- temporary: set for deduplication
+    authors = {},
+    _authors_seen = {}, -- temporary: set for deduplication
+  }
+
+  -- Build buffer lines (also builds accumulated thread metadata)
   local lines = {}
-  build_message_lines(root_node, 0, lines)
+  build_message_lines(root_node, 0, lines, thread_metadata)
 
-  return lines
+  -- Set metadata tags based on ordered list of seen tags during recursion
+  thread_metadata.tags = vim.tbl_keys(thread_metadata._tags_set)
+  table.sort(thread_metadata.tags)
+  thread_metadata._tags_set = nil
+
+  -- Set metadata authors for this thread
+  thread_metadata.authors = vim.tbl_keys(thread_metadata._authors_seen)
+  thread_metadata._authors_seen = nil
+
+  return lines, thread_metadata
 end
 
 return T
