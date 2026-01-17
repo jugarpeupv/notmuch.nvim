@@ -31,7 +31,7 @@ nm.setup = function(opts)
   -- Set up the main entry point command :Notmuch
   vim.cmd[[command Notmuch :lua require('notmuch').notmuch_hello()]]
 	vim.api.nvim_create_user_command("Inbox", function(arg)
-		if arg.fargs ~= {} then
+		if #arg.fargs ~= 0 then
 			nm.search_terms("tag:inbox to:" .. arg.args)
 		else
 			nm.search_terms("tag:inbox")
