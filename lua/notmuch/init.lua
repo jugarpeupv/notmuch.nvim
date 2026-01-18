@@ -175,7 +175,8 @@ nm.show_thread = function(s)
 
   local lines, metadata = require('notmuch.thread').show_thread(threadid)
   v.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.b.notmuch_thread = metadata
+  vim.b.notmuch_thread = metadata.thread
+  vim.b.notmuch_messages = metadata.messages
 
   -- Insert hint message at the top of the buffer
   local hint_text =

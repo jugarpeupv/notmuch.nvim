@@ -30,7 +30,7 @@
 --- integration and so on):
 ---
 --- `vim.b.notmuch_thread`          : Current thread metadata
---- `vim.b.notmuch_thread_messages` : Array of message objects inside thread
+--- `vim.b.notmuch_messages`        : Array of message objects inside thread
 --- `vim.b.notmuch_current`         : Cursor-tracked current message data
 --- `vim.b.notmuch_status`          : Formatted string for quick statusline
 
@@ -87,13 +87,18 @@ local function format_headers(msg, depth)
   local lines = {}
   local headers = msg.headers or {}
 
+  -- Helper to remove folded lines (RFC 2822)
+  local function unfold(s)
+    return s and s:gsub('\r?\n%S*', ' ') or ""
+  end
+
   -- Extract header values with fallbacks
-  local from = headers.From or "[Unknown sender]"
-  local subject = headers.Subject or "[No subject]"
-  local to = headers.To or ""
-  local cc = headers.Cc
-  local date_full = headers.Date or ""
-  local date_relative = msg.date_relative or ""
+  local from = unfold(headers.From) or "[Unknown sender]"
+  local subject = unfold(headers.Subject) or "[No subject]"
+  local to = unfold(headers.To) or ""
+  local cc = unfold(headers.Cc)
+  local date_full = unfold(headers.Date) or ""
+  local date_relative = unfold(msg.date_relative) or ""
 
   -- Get tags and attachment info
   local tags = msg.tags or {}
@@ -226,23 +231,32 @@ local function build_message_lines(msg_node, depth, lines, metadata)
   local msg = msg_node[1]
   local replies = msg_node[2] or {}
 
+  -- Keep an offset of the header at the top of the buffer (hints + blank line)
+  local HEADER_OFFSET = 2
+
   -- Update thread metadata with this message metadata
-  metadata.message_count = metadata.message_count + 1
+  metadata.thread.message_count = metadata.thread.message_count + 1
+
+  -- Track the message's starting line number (where summary is shown)
+  local start_line = #lines + 1 + HEADER_OFFSET
 
   -- Update tags seen in the thread
   for _, tag in ipairs(msg.tags) do
-    metadata._tags_set[tag] = true
+    metadata.thread._tags_set[tag] = true
   end
 
   -- Add author into metadata list
   local from = (msg.headers or {}).From
   if from and from ~= "" then
-    metadata._authors_seen[from] = true
+    metadata.thread._authors_seen[from] = true
   end
 
   -- Parse and prepare header lines
   local headers = format_headers(msg, depth)
   vim.list_extend(lines, headers)
+
+  -- Track message fold starting line (line with '{{{' fold opening marker)
+  local fold_line = start_line + 1
 
   -- Extract body and content
   local body = process_body_parts(msg.body)
@@ -251,8 +265,25 @@ local function build_message_lines(msg_node, depth, lines, metadata)
   -- Add fold end marker
   table.insert(lines, "}}}")
 
+  -- Track message's last line (line with fold closing marker '}}}'
+  local end_line = #lines + HEADER_OFFSET
+
   -- Add blank line separator after message
   table.insert(lines, "")
+
+  -- Add message entry into the metadata list of messages
+  table.insert(metadata.messages, {
+    id = msg.id,
+    start_line = start_line,
+    fold_line = fold_line,
+    end_line = end_line,
+    depth = depth,
+    from = (msg.headers or {}).From or "",
+    date_relative = msg.date_relative or "",
+    subject = (msg.headers or {}).Subject or "",
+    tags = msg.tags or {},
+    attachment_count = select(2, has_attachments(msg.body)),
+  })
 
   -- Process replies recursively
   if replies and #replies > 0 then
@@ -323,31 +354,34 @@ T.show_thread = function(threadid)
   local root_msg = root_node[1]
 
   -- Initialize `vim.b.notmuch_thread` accumulator
-  local thread_metadata = {
-    id = threadid,
-    subject = (root_msg.headers or {}).Subject or "[No subject]",
-    date_relative = root_msg.date_relative or "",
-    message_count = 0,
-    tags = {},
-    _tags_set = {},     -- temporary: set for deduplication
-    authors = {},
-    _authors_seen = {}, -- temporary: set for deduplication
+  local metadata = {
+    thread = {
+      id = threadid,
+      subject = (root_msg.headers or {}).Subject or "[No subject]",
+      date_relative = root_msg.date_relative or "",
+      message_count = 0,
+      tags = {},
+      _tags_set = {},     -- temporary: set for deduplication
+      authors = {},
+      _authors_seen = {}, -- temporary: set for deduplication
+    },
+    messages = {},
   }
 
   -- Build buffer lines (also builds accumulated thread metadata)
   local lines = {}
-  build_message_lines(root_node, 0, lines, thread_metadata)
+  build_message_lines(root_node, 0, lines, metadata)
 
   -- Set metadata tags based on ordered list of seen tags during recursion
-  thread_metadata.tags = vim.tbl_keys(thread_metadata._tags_set)
-  table.sort(thread_metadata.tags)
-  thread_metadata._tags_set = nil
+  metadata.thread.tags = vim.tbl_keys(metadata.thread._tags_set)
+  table.sort(metadata.thread.tags)
+  metadata.thread._tags_set = nil
 
   -- Set metadata authors for this thread
-  thread_metadata.authors = vim.tbl_keys(thread_metadata._authors_seen)
-  thread_metadata._authors_seen = nil
+  metadata.thread.authors = vim.tbl_keys(metadata.thread._authors_seen)
+  metadata.thread._authors_seen = nil
 
-  return lines, thread_metadata
+  return lines, metadata
 end
 
 return T
