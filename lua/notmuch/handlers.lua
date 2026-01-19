@@ -53,6 +53,13 @@ H.default_view_handler = function(attachment)
   local filetype = vim.fn.system({ 'file', '--mime-type', '-b', path }):gsub('%s+$', '')
   local ext = path:match('%.([^%.]+)$') or ''
 
+  -- Calendar files (most common)
+  if filetype:match('text/calendar') or ext:match('^calendar?$') then
+    return try_commands({
+      { tool = 'render-calendar-attachment.py',    command = function(p) return { 'render-calendar-attachment.py', p } end },
+    }) or "Calendar file (download render-calendar-attachment.py [https://github.com/ceuk/mutt_dotfiles/tree/master/bin] to view)"
+  end
+
   -- HTML files (most common)
   if filetype:match('text/html') or ext:match('^html?$') then
     return try_commands({
