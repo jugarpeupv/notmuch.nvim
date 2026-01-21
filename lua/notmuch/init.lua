@@ -28,15 +28,38 @@ nm.setup = function(opts)
     return
   end
 
-  -- Set up the main entry point command :Notmuch
-  vim.cmd [[command Notmuch :lua require('notmuch').notmuch_hello()]]
+  -- setup user commands
+  vim.api.nvim_create_user_command("Notmuch",
+    nm.notmuch_hello,
+    {
+      desc = "notmuch.nvim landing page",
+    }
+  )
   vim.api.nvim_create_user_command("Inbox", function(arg)
     if #arg.fargs ~= 0 then
-      nm.search_terms("tag:inbox to:" .. arg.args)
+      require("notmuch").search_terms("tag:inbox to:" .. arg.args)
     else
-      nm.search_terms("tag:inbox")
+      require("notmuch").search_terms("tag:inbox")
     end
-  end, { desc = "Open inbox", nargs = "?", complete = "custom,notmuch#CompAddress" })
+  end, {
+    desc = "Open inbox",
+    nargs = "?",
+    complete = require("notmuch.cmdline_completions").comp_address
+  })
+  vim.api.nvim_create_user_command("NmSearch", function(arg)
+    nm.search_terms(arg.args)
+  end, {
+    desc = "Notmuch search",
+    nargs = "*",
+    complete = require("notmuch.cmdline_completions").comp_search_terms
+  })
+  vim.api.nvim_create_user_command("ComposeMail", function(arg)
+    require("notmuch.send").compose(arg.args)
+  end, {
+    desc = "Compose mail",
+    nargs = "*",
+    complete = require("notmuch.cmdline_completions").comp_address
+  })
 end
 
 -- Launch `notmuch.nvim` landing page
