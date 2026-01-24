@@ -1,6 +1,7 @@
 local s = {}
 local u = require('notmuch.util')
 local m = require('notmuch.mime')
+local thread = require('notmuch.thread')
 local v = vim.api
 
 local config = require('notmuch.config')
@@ -241,7 +242,7 @@ end
 --   require('notmuch.send').reply()
 s.reply = function()
   -- Get msg id of the mail to be replied to
-  local id = u.find_cursor_msg_id()
+  local id = thread.get_current_message_id()
   if not id then return end
 
   -- Create new draft mail to hold reply

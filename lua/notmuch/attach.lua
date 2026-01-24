@@ -3,6 +3,7 @@ local u = require('notmuch.util')
 local v = vim.api
 
 local config = require('notmuch.config')
+local thread = require('notmuch.thread')
 
 local function show_github_patch(link)
   local buf = v.nvim_create_buf(true, true)
@@ -334,7 +335,7 @@ end
 --- (openable parts) are displayed with their notmuch part IDs for direct access.
 a.get_attachments_from_cursor_msg = function()
   -- Get msg ID from cursor location and validate
-  local id = u.find_cursor_msg_id()
+  local id = thread.get_current_message_id()
   if id == nil then return nil end
 
   -- If attachment buffer already exists, notify and return
@@ -371,7 +372,7 @@ a.get_urls_from_cursor_msg = function()
     print("Can't launch URL selector (:YTerm command not found)")
     return nil
   end
-  local id = u.find_cursor_msg_id()
+  local id = thread.get_current_message_id()
   if id == nil then return nil end
   v.nvim_command('YTerm "notmuch show id:' .. id .. ' | urlextract"')
 end

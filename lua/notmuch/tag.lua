@@ -1,5 +1,6 @@
 local t = {}
 local v = vim.api
+local thread = require('notmuch.thread')
 local u = require'notmuch.util'
 
 local config = require('notmuch.config')
@@ -7,7 +8,7 @@ local config = require('notmuch.config')
 t.msg_add_tag = function(tags)
   local t = u.split(tags, '%S+')
   local db = require'notmuch.cnotmuch'(config.options.notmuch_db_path, 1)
-  local id = u.find_cursor_msg_id()
+  local id = thread.get_current_message_id()
   if id == nil then return end
   local msg = db.get_message(id)
   for i,tag in pairs(t) do
@@ -20,7 +21,7 @@ end
 t.msg_rm_tag = function(tags)
   local t = u.split(tags, '%S+')
   local db = require'notmuch.cnotmuch'(config.options.notmuch_db_path, 1)
-  local id = u.find_cursor_msg_id()
+  local id = thread.get_current_message_id()
   if id == nil then return end
   local msg = db.get_message(id)
   for i,tag in pairs(t) do
@@ -33,7 +34,7 @@ end
 t.msg_toggle_tag = function(tags)
   local t = u.split(tags, '%S+')
   local db = require'notmuch.cnotmuch'(config.options.notmuch_db_path, 1)
-  local id = u.find_cursor_msg_id()
+  local id = thread.get_current_message_id()
   if id == nil then return end
   local msg = db.get_message(id)
   local curr_tags = msg:get_tags()

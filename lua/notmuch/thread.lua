@@ -354,6 +354,23 @@ local function update_current_message()
 end
 
 --------------------------------------------------------------------------------
+-- PUBLIC: Buffer-local variables interface
+--------------------------------------------------------------------------------
+
+--- Returns current message object from buffer local variable
+--- @return table|nil message Current message object with all fields
+function T.get_current_message()
+  return vim.b.notmuch_current
+end
+
+--- Returns current message ID from buffer local variable
+--- @return string|nil id Message ID of the current message or nil
+function T.get_current_message_id()
+  local current = vim.b.notmuch_current
+  return current and current.id
+end
+
+--------------------------------------------------------------------------------
 -- PUBLIC: Show thread main entry point
 --------------------------------------------------------------------------------
 
