@@ -173,8 +173,11 @@ nm.show_thread = function(s)
   v.nvim_buf_set_name(buf, "thread:" .. threadid)
   v.nvim_win_set_buf(0, buf)
 
+  -- Get output (JSON parsed) and display lines in buffer
   local lines, metadata = require('notmuch.thread').show_thread(threadid)
   v.nvim_buf_set_lines(buf, 0, -1, false, lines)
+
+  -- Set up buffer-local variables with thread metadata
   vim.b.notmuch_thread = metadata.thread
   vim.b.notmuch_messages = metadata.messages
 
@@ -188,6 +191,9 @@ nm.show_thread = function(s)
   v.nvim_win_set_cursor(0, { 1, 0})
   vim.bo.filetype="mail"
   vim.bo.modifiable = false
+
+  -- Set up cursor tracking for updating vim.b.notmuch_current
+  require('notmuch.thread').setup_cursor_tracking(buf)
 end
 
 -- Counts the number of threads matching the search terms

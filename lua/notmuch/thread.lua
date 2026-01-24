@@ -297,11 +297,78 @@ end
 -- PRIVATE: Buffer variable builders
 --------------------------------------------------------------------------------
 
+--- Get message in the thread from the given line number
+--- @param line? number Line number in the buffer. 0 refers to cursor line)
+--- @return table|nil message Message object or nil if none is found
+--- @return number|nil index 1-based index of the message in the thread or nil
+local function get_message_at_line(line)
+  line = line or vim.api.nvim_win_get_cursor(0)[1]
+  local messages = vim.b.notmuch_messages
+  if not messages then return nil, nil end
 
+  -- Find corresponding message (`line` is within message start/end bounds)
+  for i, msg in ipairs(messages) do
+    if line >= msg.start_line and line <= msg.end_line then
+      return msg, i
+    end
+  end
+
+  -- Not found
+  return nil, nil
+end
+
+--- Update current message tracker variable based on cursor line position
+--- Updates vim.b.notmuch_current and vim.b.notmuch_status
+local function update_current_message()
+  local line = vim.api.nvim_win_get_cursor(0)[1]
+  local current = vim.b.notmuch_current
+
+  -- Fast check: cursor is still in same message
+  if current and line >= current.start_line and line <= current.end_line then
+    return
+  end
+
+  -- Find message at cursor
+  local msg, index = get_message_at_line(line)
+  if not msg then
+    vim.b.notmuch_current = nil
+    vim.b.notmuch_status = ""
+    return
+  end
+
+  -- Update current message buffer variable
+  local total = #vim.b.notmuch_messages
+  vim.b.notmuch_current = vim.tbl_extend("force", msg, {
+    index = index,
+    total = total,
+  })
+
+  -- Format status string
+  local from_name = msg.from:match("^([^<]+)") or msg.from
+  from_name = vim.trim(from_name)
+  local status = string.format("%d/%d %s", index, total, from_name)
+  if msg.attachment_count > 0 then
+    status = status .. " 📎" .. msg.attachment_count
+  end
+  vim.b.notmuch_status = status
+end
 
 --------------------------------------------------------------------------------
 -- PUBLIC: Show thread main entry point
 --------------------------------------------------------------------------------
+
+--- Set up autocmd for updating current message tracker on CursorMove
+--- @param bufnr number Buffer number
+function T.setup_cursor_tracking(bufnr)
+  -- Updates the current message in buffer local variable with each CursorMoved
+  vim.api.nvim_create_autocmd('CursorMoved', {
+    buffer = bufnr,
+    callback = update_current_message,
+  })
+
+  -- Initial current message variable
+  update_current_message()
+end
 
 --- Fetches and renders a thread as buffer lines
 ---
