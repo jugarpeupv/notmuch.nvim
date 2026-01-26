@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Per-message tag display in thread view header
 - Attachment count indicator (📎) in message headers
 - MIME part markers in message body for attachments and HTML content
+- Buffer-local variables for thread metadata (enables statusline integration and user extensibility)
+  - `vim.b.notmuch_thread` - Thread-level metadata (ID, subject, tags, authors, message count)
+  - `vim.b.notmuch_messages` - Array of all messages in thread with metadata
+  - `vim.b.notmuch_current` - Cursor-tracked current message data with position info
+  - `vim.b.notmuch_status` - Formatted statusline string showing message position and sender
 - FFI bindings for `notmuch_database_open_with_config` (notmuch 5.4+/API 0.32+)
 - Automatic notmuch version detection at module load with result caching
 - Warning notification when using deprecated API (notmuch < 0.32)
@@ -30,6 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Proper handling of complex MIME structures (multipart/mixed, multipart/alternative)
   - Concatenates multiple inline text parts (body, signatures, mailing list footers)
   - Now fetches HTML content (`--include-html`) for optional rendering
+- Message ID lookup now uses buffer-local variables instead of regex parsing
+  - Replaces `util.find_cursor_msg_id()` with `thread.get_current_message_id()`
+  - Cursor position automatically tracked via `CursorMoved` autocmd
+  - Eliminates redundant buffer scans for message operations
 - Database opening now uses `notmuch_database_open_with_config` when available, with fallback to deprecated `notmuch_database_open`
 - Version detection runs once at module load for improved performance
 
