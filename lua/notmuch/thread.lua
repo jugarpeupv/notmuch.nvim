@@ -434,8 +434,8 @@ T.show_thread = function(threadid)
     return { "Thread data is malformed or empty" }, {}
   end
 
-  local root_node = json[1][1]
-  local root_msg = root_node[1]
+  local thread = json[1]
+  local root_msg = thread[1][1]
 
   -- Initialize `vim.b.notmuch_thread` accumulator
   local metadata = {
@@ -454,7 +454,9 @@ T.show_thread = function(threadid)
 
   -- Build buffer lines (also builds accumulated thread metadata)
   local lines = {}
-  build_message_lines(root_node, 0, lines, metadata)
+  for _, node in ipairs(thread) do
+    build_message_lines(node, 0, lines, metadata)
+  end
 
   -- Set metadata tags based on ordered list of seen tags during recursion
   metadata.thread.tags = vim.tbl_keys(metadata.thread._tags_set)
