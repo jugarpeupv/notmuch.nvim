@@ -319,6 +319,8 @@ end
 
 --- Update current message tracker variable based on cursor line position
 --- Updates vim.b.notmuch_current and vim.b.notmuch_status
+--- If cursor is out of bounds (at the top or between messages) it will display
+--- the *next* message as the current message
 local function update_current_message()
   local line = vim.api.nvim_win_get_cursor(0)[1]
   local current = vim.b.notmuch_current
@@ -330,6 +332,21 @@ local function update_current_message()
 
   -- Find message at cursor
   local msg, index = get_message_at_line(line)
+
+  -- If cursor is not in a message, find next message after cursor
+  if not msg then
+    local messages = vim.b.notmuch_messages
+    if messages then
+      for i, m in ipairs(messages) do
+        if m.start_line > line then
+          msg, index = m, i
+          break
+        end
+      end
+    end
+  end
+
+  -- Still no message found (shouldn't happen but need nil check)
   if not msg then
     vim.b.notmuch_current = nil
     vim.b.notmuch_status = ""
