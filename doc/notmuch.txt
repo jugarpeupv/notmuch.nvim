@@ -215,9 +215,15 @@ Notmuch.nvim plugin and the local mail system to search and browse.
 		     search term you want.
 
                                                     *:Inbox*
-:Inbox               Launches into the user's mail inbox showing all threads
-		     with the `inbox` tag. Essentially implemented by the
-		     |NmSearch| command.
+:Inbox [email]       Launches into the user's mail inbox showing all threads
+		     with the `inbox` tag. Optionally accepts an email address
+		     to filter results by recipient (using notmuch's `to:`
+		     search term). For example: >
+
+		       :Inbox work@example.com
+<
+		     Provides autocomplete for email addresses from the notmuch
+		     database. Essentially implemented by the |NmSearch| command.
 
 ------------------------------------------------------------------------------
 OPTIONS                                                       *notmuch-options*

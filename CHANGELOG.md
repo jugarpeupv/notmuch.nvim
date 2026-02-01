@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automatic notmuch version detection at module load with result caching
 - Warning notification when using deprecated API (notmuch < 0.32)
 - Configuration option `suppress_deprecation_warning` to suppress API deprecation warnings
+- Optional email address argument for `:Inbox` command to filter by recipient (`to:` field)
+  - Includes autocomplete for email addresses from notmuch database
 
 ### Changed
 

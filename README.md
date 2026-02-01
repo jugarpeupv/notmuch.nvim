@@ -108,6 +108,17 @@ Here are the core commands within Notmuch.nvim:
   :NmSearch tag:inbox and date:today
   ```
 
+- **`:Inbox [email]`**: Quick access to your inbox. Optionally filter by
+  recipient email address (Useful for multi-account setups.)
+
+  ```vim
+  " Open all inbox messages
+  :Inbox
+
+  " Open inbox for a specific account
+  :Inbox work@example.com
+  ```
+
 ## Configuration Options
 
 You can configure several global options to tailor the plugin's behavior:
