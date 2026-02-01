@@ -29,14 +29,14 @@ nm.setup = function(opts)
   end
 
   -- Set up the main entry point command :Notmuch
-  vim.cmd[[command Notmuch :lua require('notmuch').notmuch_hello()]]
-	vim.api.nvim_create_user_command("Inbox", function(arg)
-		if #arg.fargs ~= 0 then
-			nm.search_terms("tag:inbox to:" .. arg.args)
-		else
-			nm.search_terms("tag:inbox")
-		end
-	end, { desc = "Open inbox", nargs = "?", complete = "custom,notmuch#CompAddress" })
+  vim.cmd [[command Notmuch :lua require('notmuch').notmuch_hello()]]
+  vim.api.nvim_create_user_command("Inbox", function(arg)
+    if #arg.fargs ~= 0 then
+      nm.search_terms("tag:inbox to:" .. arg.args)
+    else
+      nm.search_terms("tag:inbox")
+    end
+  end, { desc = "Open inbox", nargs = "?", complete = "custom,notmuch#CompAddress" })
 end
 
 -- Launch `notmuch.nvim` landing page
@@ -88,8 +88,9 @@ nm.search_terms = function(search, jumptothreadid)
   v.nvim_buf_set_name(buf, search)
   v.nvim_win_set_buf(0, buf)
 
-  local hint_text = "Hints: <Enter>: Open thread | q: Close | r: Refresh | %: Sync maildir | a: Archive | A: Archive and Read | +/-/=: Add, remove, toggle tag | o: Sort | dd: Delete"
-  v.nvim_buf_set_lines(buf, 0, 2, false, { hint_text , "" })
+  local hint_text =
+  "Hints: <Enter>: Open thread | q: Close | r: Refresh | %: Sync maildir | a: Archive | A: Archive and Read | +/-/=: Add, remove, toggle tag | o: Sort | dd: Delete"
+  v.nvim_buf_set_lines(buf, 0, 2, false, { hint_text, "" })
 
   -- Async notmuch search to make the UX non blocking
   require('notmuch.async').run_notmuch_search(search, buf, function()
@@ -177,13 +178,14 @@ nm.show_thread = function(s)
   require('notmuch.util').process_msgs_in_thread(buf)
 
   -- Insert hint message at the top of the buffer
-  local hint_text = "Hints: <Enter>: Toggle fold message | <Tab>: Next message | <S-Tab>: Prev message | q: Close | a: See attachment parts"
-  v.nvim_buf_set_lines(buf, 0, 0, false, { hint_text , "" })
+  local hint_text =
+  "Hints: <Enter>: Toggle fold message | <Tab>: Next message | <S-Tab>: Prev message | q: Close | a: See attachment parts"
+  v.nvim_buf_set_lines(buf, 0, 0, false, { hint_text, "" })
 
   -- Place cursor at head of buffer and prepare display and disable modification
   v.nvim_buf_set_lines(buf, -3, -1, true, {})
-  v.nvim_win_set_cursor(0, { 1, 0})
-  vim.bo.filetype="mail"
+  v.nvim_win_set_cursor(0, { 1, 0 })
+  vim.bo.filetype = "mail"
   vim.bo.modifiable = false
 end
 
@@ -198,7 +200,7 @@ end
 -- @usage
 -- lua require('notmuch').count('tag:inbox') -- > '999'
 nm.count = function(search)
-  local db = require'notmuch.cnotmuch'(config.options.notmuch_db_path, 0)
+  local db = require 'notmuch.cnotmuch' (config.options.notmuch_db_path, 0)
   local q = db.create_query(search)
   local count_threads = q.count_threads()
   db.close()
@@ -215,7 +217,7 @@ end
 -- nm.show_all_tags() -- opens the `hello` page
 nm.show_all_tags = function()
   -- Fetch all tags available in the notmuch database
-  local db = require'notmuch.cnotmuch'(config.options.notmuch_db_path, 0)
+  local db = require 'notmuch.cnotmuch' (config.options.notmuch_db_path, 0)
   local tags = db.get_all_tags()
   db.close()
 
@@ -227,10 +229,10 @@ nm.show_all_tags = function()
 
   -- Insert help hints at the top of the buffer
   local hint_text = "Hints: <Enter>: Show threads | q: Close | r: Refresh | %: Refresh maildir | c: Count messages"
-  v.nvim_buf_set_lines(buf, 0, 0, false, { hint_text , "" })
+  v.nvim_buf_set_lines(buf, 0, 0, false, { hint_text, "" })
 
   -- Clean up the buffer and set the cursor to the head
-  v.nvim_win_set_cursor(0, { 3, 0})
+  v.nvim_win_set_cursor(0, { 3, 0 })
   v.nvim_buf_set_lines(buf, -2, -1, true, {})
   vim.bo.filetype = "notmuch-hello"
   vim.bo.modifiable = false
