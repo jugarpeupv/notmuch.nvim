@@ -43,6 +43,8 @@ the familiar Vim interface and motions.
   required due to LuaJIT support.
 - **[Notmuch](https://notmuchmail.org)**: Ensure Notmuch and libnotmuch library
   are installed
+- **[w3m](http://w3m.sourceforge.net/)** (optional): Required for inline HTML
+  email rendering when `render_html_body = true`
 - (WIP) ~~**[Telescope.nvim](https://github.com/nvim-telescope/telescope.nvim)**: File
   picker of choice for many use cases.~~
 
@@ -131,6 +133,7 @@ You can configure several global options to tailor the plugin's behavior:
 | `keymaps`          | Configure any (WIP) command's keymap                                            | See `config.lua`[1]             |
 | `open_handler`     | Callback function for opening attachments                                       | Runs OS-aware `open`[2]         |
 | `view_handler`     | Callback function for converting attachments to text to view in floating window | See `default_view_handler()`[2] |
+| `render_html_body` | Render HTML email bodies inline using `w3m` (requires `w3m` installed)          | `false`                         |
 
 [1]: https://github.com/yousefakbar/notmuch.nvim/blob/main/lua/notmuch/config.lua
 [2]: https://github.com/yousefakbar/notmuch.nvim/blob/main/lua/notmuch/handlers.lua
@@ -149,6 +152,7 @@ Example configuration in plugin manager (lazy.nvim):
         keymaps = {
             sendmail = "<C-g><C-g>",
         },
+        render_html_body = true, -- Render HTML emails inline (requires w3m)
     },
 },
 ```
@@ -190,6 +194,33 @@ require('notmuch').setup({
 
 The default handlers are defined in `lua/notmuch/handlers.lua` and handle many
 common formats out of the box. Only override them if you need specific behavior.
+
+### Statusline Integration
+
+When viewing a thread, the plugin exposes buffer-local variables that can be
+used for statusline integration or other extensibility purposes:
+
+| Variable | Description |
+| :------- | :---------- |
+| `vim.b.notmuch_thread` | Thread metadata (ID, subject, tags, authors, message count) |
+| `vim.b.notmuch_messages` | Array of all messages with line positions and metadata |
+| `vim.b.notmuch_current` | Cursor-tracked current message (updates on `CursorMoved`) |
+| `vim.b.notmuch_status` | Pre-formatted statusline string (e.g., "2/5 John Doe 📎1") |
+
+Example statusline integration with lualine:
+
+```lua
+require('lualine').setup({
+  sections = {
+    lualine_c = {
+      {
+        function() return vim.b.notmuch_status or '' end,
+        cond = function() return vim.bo.filetype == 'mail' end,
+      },
+    },
+  },
+})
+```
 
 ## License
 

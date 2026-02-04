@@ -53,6 +53,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation
 
 - Installation instructions for Neovim v0.12+ builtin package manager (`vim.pack.add`)
+- Buffer-local variables reference in README and help docs (`:help notmuch-buffer-variables`)
+- `render_html_body` configuration option with w3m dependency note
+- `w3m` listed as optional dependency for HTML rendering
 
 ## [0.2.0] - 2026-01-09
 

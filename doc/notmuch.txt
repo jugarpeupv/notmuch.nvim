@@ -16,6 +16,7 @@ CONTENTS                                                     *notmuch-contents*
     Completion                          |notmuch-completion|
   Behavior                              |notmuch-behavior|
     Buffers                             |notmuch-buffers|
+    Buffer-Local Variables              |notmuch-buffer-variables|
     Asynchronous Operations             |notmuch-async|
     Highlighting                        |notmuch-syntax-highlight|
   Lua Structure                         |notmuch-structure|
@@ -119,6 +120,15 @@ Notmuch~
   native package manager, or you can build it from source:
 
       `Notmuch`: https://notmuchmail.org
+
+w3m (Optional)~
+
+  The w3m text-based browser is used for rendering HTML email bodies inline
+  when the |render_html_body| option is enabled. Without w3m installed, HTML
+  emails will display a placeholder with instructions to view via the
+  attachment interface.
+
+      `w3m`: http://w3m.sourceforge.net/
 
 ------------------------------------------------------------------------------
 INSTALLATION                                             *notmuch-installation*
@@ -319,6 +329,29 @@ option will be listed with its default value.
   Default value:
     See `config.lua` for plugin defaults.
 
+*render_html_body*
+  Controls whether HTML email bodies are rendered inline in thread view using
+  `w3m`. When enabled, the plugin will convert HTML content to plain text for
+  display in the buffer. This is useful for emails that are sent as HTML-only
+  or where the HTML version contains better formatting than the text/plain
+  alternative.
+
+  When disabled (the default), HTML parts are hidden with a marker indicating
+  they can be viewed via the attachment interface (press 'a').
+
+  Note: Requires `w3m` to be installed. If w3m is not available, a fallback
+  message is displayed instead.
+
+  Default value:
+    `false`
+
+  Example: >
+
+    require('notmuch').setup({
+      render_html_body = true,
+    })
+<
+
 ------------------------------------------------------------------------------
 COMPLETION                                                 *notmuch-completion*
 
@@ -401,6 +434,68 @@ These features leverage NeoVim's buffer system to deliver a seamless and
 efficient email management experience, making it easier to navigate and
 interact with your email directly from the editor.
 
+- *Buffer-Local Variables* ~
+                                            *notmuch-buffer-variables*
+  Thread View buffers expose several buffer-local variables containing
+  metadata about the current thread and messages. These can be used for
+  statusline integration, custom keymaps, or other extensibility purposes.
+
+  *vim.b.notmuch_thread*
+    Table containing thread-level metadata:
+    - `id`: Thread ID (e.g., "000000000000abcd")
+    - `subject`: Subject line from the root message
+    - `tags`: Array of all unique tags across messages in the thread
+    - `authors`: Array of all unique authors (From addresses)
+    - `message_count`: Total number of messages in the thread
+    - `date_relative`: Relative date string (e.g., "2 hours ago")
+
+  *vim.b.notmuch_messages*
+    Array of message objects, one per message in the thread. Each contains:
+    - `id`: Message ID
+    - `start_line`: First line of this message in buffer
+    - `end_line`: Last line of this message in buffer
+    - `fold_line`: Line containing the fold marker
+    - `depth`: Reply depth (0 for root message)
+    - `from`: From header value
+    - `subject`: Subject header value
+    - `date_relative`: Relative date string
+    - `tags`: Array of tags on this specific message
+    - `attachment_count`: Number of attachments
+
+  *vim.b.notmuch_current*
+    Table containing the message under the cursor. Updated automatically via
+    |CursorMoved| autocmd. Contains all fields from notmuch_messages plus:
+    - `index`: 1-based position in the thread (e.g., 2 of 5)
+    - `total`: Total message count
+
+  *vim.b.notmuch_status*
+    Pre-formatted string suitable for statusline display. Format:
+    `{index}/{total} {sender_name} [📎{attachment_count}]`
+    Example: "2/5 John Doe 📎1"
+
+  Example statusline integration with lualine: >
+
+    require('lualine').setup({
+      sections = {
+        lualine_c = {
+          {
+            function() return vim.b.notmuch_status or '' end,
+            cond = function() return vim.bo.filetype == 'mail' end,
+          },
+        },
+      },
+    })
+<
+  Example custom keymap using buffer variables: >
+
+    vim.keymap.set('n', '<leader>mt', function()
+      local thread = vim.b.notmuch_thread
+      if thread then
+        print("Thread: " .. thread.subject)
+        print("Tags: " .. table.concat(thread.tags, ", "))
+      end
+    end)
+<
 ------------------------------------------------------------------------------
 ASYNCHRONOUS OPERATIONS                                         *notmuch-async*
 
@@ -507,6 +602,16 @@ plugin's project codebase.
   - **config.lua**:
     - Defines the default configuration options.
     - Implements configuration option overrides set by the user.
+
+  - **thread.lua**:
+    - Handles JSON-based thread display and parsing.
+    - Runs `notmuch show --format=json` and transforms output into buffer
+      lines with fold markers, formatted headers, and rendered body content.
+    - Walks MIME trees for multipart messages with optional HTML rendering.
+    - Exports thread metadata to buffer-local variables (see
+      |notmuch-buffer-variables|).
+    - Sets up cursor tracking to update |vim.b.notmuch_current| on
+      |CursorMoved|.
 
   - **tag.lua**:
     - Handles operations related to tagging threads and messages.
