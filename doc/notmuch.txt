@@ -355,22 +355,20 @@ option will be listed with its default value.
 ------------------------------------------------------------------------------
 COMPLETION                                                 *notmuch-completion*
 
-Notmuch.nvim provides a handy autoload function that returns completion items
-for commands. Specifcially this is used for |:NmSearch| as it helps quickly
-type search terms. The function in question is called
-`notmuch#CompSearchTerms()` and matches the format for generic completion
-functons (|command-completion-custom|).
+Notmuch.nvim provides completion functions for commands via the `completion.lua`
+Lua module. These are used for |:NmSearch|, |:Inbox|, and |:ComposeMail| to help
+quickly type search terms and addresses. The completion module exposes functions
+like `comp_search_terms()`, `comp_tags()`, and `comp_address()`.
 
-Although this is used for |:NmSearch|, you can actually use this as a
-completion function for any custom commands you may want to define. The
-completion function returns a few types of results:
+The completion functions return filtered results based on what the user has typed
+so far. The completion function returns a few types of results:
 
-  * If the word under the cursor says 'tag:', returns a list of all the tags
-    available in the notmuch database.
+  * If the word under the cursor starts with 'tag:', returns a list of all the
+    tags available in the notmuch database.
   * Similar completions are done intelligently for search terms like 'is:',
-    'mimetype', 'folder:', 'path:'.
+    'mimetype:', 'folder:', 'path:'.
   * Address completion can be used with 'from:', 'to:'. Especially useful for
-    composing emails too.
+    composing emails and filtering by recipient.
   * Otherwise returns a list of all the valid search terms (see
     `notmuch-search-terms(1)`).
 
@@ -602,6 +600,13 @@ plugin's project codebase.
   - **config.lua**:
     - Defines the default configuration options.
     - Implements configuration option overrides set by the user.
+
+  - **completion.lua**:
+    - Provides command-line completion functions for user commands.
+    - Implements `comp_search_terms()` for |:NmSearch| command completion.
+    - Implements `comp_tags()` for tag-related completion.
+    - Implements `comp_address()` for email address completion.
+    - Filters completion results based on user input for better UX.
 
   - **thread.lua**:
     - Handles JSON-based thread display and parsing.
