@@ -3,9 +3,9 @@ if match(bufname("%"), "^thread:") != -1
 	setlocal foldmethod=marker
 	setlocal foldlevel=0
 
-	command -buffer -complete=custom,notmuch#CompTags -nargs=+ TagAdd :call v:lua.require('notmuch.tag').msg_add_tag("<args>")
-	command -buffer -complete=custom,notmuch#CompTags -nargs=+ TagRm :call tag.msg_rm_tag("<args>")
-	command -buffer -complete=custom,notmuch#CompTags -nargs=+ TagToggle :call tag.msg_toggle_tag("<args>")
+	command -buffer -complete=customlist,v:lua.require'notmuch.completion'.comp_tags -nargs=+ TagAdd :call v:lua.require('notmuch.tag').msg_add_tag("<args>")
+	command -buffer -complete=customlist,v:lua.require'notmuch.completion'.comp_tags -nargs=+ TagRm :call tag.msg_rm_tag("<args>")
+	command -buffer -complete=customlist,v:lua.require'notmuch.completion'.comp_tags -nargs=+ TagToggle :call tag.msg_toggle_tag("<args>")
 	command -buffer FollowPatch :call v:lua.require('notmuch.attach').follow_github_patch(getline('.'))
 
 	nnoremap <buffer> U <Cmd>call v:lua.require('notmuch.attach').get_urls_from_cursor_msg()<CR>
