@@ -44,21 +44,21 @@ nm.setup = function(opts)
   end, {
     desc = "Open inbox",
     nargs = "?",
-    complete = require("notmuch.cmdline_completions").comp_address
+    complete = require("notmuch.completion").comp_address
   })
   vim.api.nvim_create_user_command("NmSearch", function(arg)
     nm.search_terms(arg.args)
   end, {
     desc = "Notmuch search",
     nargs = "*",
-    complete = require("notmuch.cmdline_completions").comp_search_terms
+    complete = require("notmuch.completion").comp_search_terms
   })
   vim.api.nvim_create_user_command("ComposeMail", function(arg)
     require("notmuch.send").compose(arg.args)
   end, {
     desc = "Compose mail",
     nargs = "*",
-    complete = require("notmuch.cmdline_completions").comp_address
+    complete = require("notmuch.completion").comp_address
   })
 end
 
