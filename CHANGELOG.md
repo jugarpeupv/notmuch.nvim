@@ -41,6 +41,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Eliminates redundant buffer scans for message operations
 - Database opening now uses `notmuch_database_open_with_config` when available, with fallback to deprecated `notmuch_database_open`
 - Version detection runs once at module load for improved performance
+- **Major refactoring**: Completed migration from Vimscript to pure Lua implementation
+  - Deleted `plugin/notmuch.vim` and `autoload/notmuch.vim` (Vimscript plugin files)
+  - Ported all command definitions to Lua using `vim.api.nvim_create_user_command`
+  - Ported command-line completion functions from Vimscript to Lua module (`completion.lua`)
+  - Completion functions now filter results based on user input for better UX
+  - Removed dependency on Vimscript autoload functions and global Vim command registration
 
 ### Deprecated
 
