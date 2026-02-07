@@ -104,8 +104,8 @@ nm.search_terms = function(search, jumptothreadid)
   end
   local bufno = vim.fn.bufnr(search)
   if bufno ~= -1 then
-    v.nvim_win_set_buf(0, bufno)
-    return true
+    -- Delete the existing buffer to ensure fresh content
+    vim.api.nvim_buf_delete(bufno, { force = true })
   end
   local buf = v.nvim_create_buf(true, true)
   v.nvim_buf_set_name(buf, search)
