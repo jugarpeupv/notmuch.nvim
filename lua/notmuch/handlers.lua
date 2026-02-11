@@ -35,13 +35,18 @@ H.default_view_handler = function(attachment)
       -- Check if the tool exists
       if vim.fn.executable(cmd.tool) == 1 then
         local output
-        if type(cmd.command(path)) == 'table' then
-          output = vim.fn.system(cmd.command(path))
+        local success
+        local command = cmd.command(path)
+        if type(command) == 'table' then
+          local obj = vim.system(command):wait()
+          output = obj.stdout
+          success = (obj.code == 0)
         else
-          output = vim.fn.system(cmd.command(path))
+          output = vim.fn.system(command)
+          success = (vim.v.shell_error == 0)
         end
 
-        if vim.v.shell_error == 0 then
+        if success then
           return output
         end
       end
@@ -61,7 +66,7 @@ H.default_view_handler = function(attachment)
   end
 
   -- HTML files (most common)
-  if filetype:match('text/html') or ext:match('^html?$') then
+  if filetype:match('^text/html$') or ext:match('^html?$') then
     return try_commands({
       { tool = 'w3m',    command = function(p) return { 'w3m', '-T', 'text/html', '-dump', p } end },
       { tool = 'lynx',   command = function(p) return { 'lynx', '-dump', '-nolist', p } end },
@@ -70,7 +75,7 @@ H.default_view_handler = function(attachment)
   end
 
   -- PDF files
-  if filetype:match('application/pdf') or ext == 'pdf' then
+  if filetype:match('^application/pdf$') or ext == 'pdf' then
     return try_commands({
       { tool = 'pdftotext', command = function(p) return { 'pdftotext', '-layout', p, '-' } end },
       { tool = 'mutool',    command = function(p) return { 'mutool', 'draw', '-F', 'txt', p } end },
@@ -97,7 +102,7 @@ H.default_view_handler = function(attachment)
   end
 
   -- Markdown
-  if filetype:match('text/markdown') or ext:match('^md$') then
+  if filetype:match('^text/markdown$') or ext:match('^md$') then
     return try_commands({
       { tool = 'pandoc', command = function(p) return { 'pandoc', '-t', 'plain', p } end },
       { tool = 'mdcat',  command = function(p) return { 'mdcat', p } end },

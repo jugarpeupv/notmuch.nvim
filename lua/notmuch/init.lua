@@ -102,10 +102,16 @@ nm.search_terms = function(search, jumptothreadid)
     nm.show_thread(search)
     return true
   end
-  local bufno = vim.fn.bufnr(search)
+  -- Use exact match for buffer name to avoid partial matches
+  -- Escape special regex characters in the search term
+  local escaped_search = vim.fn.escape(search, '^$.*~[]\\')
+  local bufno = vim.fn.bufnr('^' .. escaped_search .. '$')
   if bufno ~= -1 then
-    -- Delete the existing buffer to ensure fresh content
-    vim.api.nvim_buf_delete(bufno, { force = true })
+    -- Buffer exists, switch to it without refreshing
+    -- This preserves cursor position and navigation state
+    -- Users can press 'r' to explicitly refresh if needed
+    v.nvim_win_set_buf(0, bufno)
+    return true
   end
   local buf = v.nvim_create_buf(true, true)
   v.nvim_buf_set_name(buf, search)
@@ -117,8 +123,13 @@ nm.search_terms = function(search, jumptothreadid)
 
   -- Async notmuch search to make the UX non blocking
   require('notmuch.async').run_notmuch_search(search, buf, function()
+    -- Check if buffer is still valid (might have been deleted during refresh)
+    if not v.nvim_buf_is_valid(buf) then
+      return
+    end
     -- Completion logic
-    if vim.fn.getline(2) ~= '' then num_threads_found = vim.fn.line('$') - 1 end
+    local line_count = v.nvim_buf_line_count(buf)
+    if line_count > 1 then num_threads_found = line_count - 1 end
     print('Found ' .. num_threads_found .. ' threads')
     vim.fn.search(jumptothreadid)
   end)

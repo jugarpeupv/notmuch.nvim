@@ -41,8 +41,8 @@ reader as a NeoVim plugin. The main goal of Notmuch.nvim is to bring closer
 the workflow of reading mail and editing text. In a sense, this plugin acts as
 a front-end for notmuch's command line interface.
 
-Note: This plugin is written almost entirely in Lua, and hence requires NeoVim
-version 0.5 to make use of the embedded LuaJIT compiler.
+Note: This plugin is written entirely in Lua, and requires NeoVim version 0.10
+or later to make use of modern APIs such as `vim.system()`.
 
 ------------------------------------------------------------------------------
 FEATURE OVERVIEW                                             *notmuch-features*
@@ -94,9 +94,9 @@ doesn't depend on any external plugins.
 
 NeoVim version~
 
-  Notmuch.nvim requires NeoVim (>=0.5) to make use of its embedded LuaJIT
-  compiler, since the plugin is written mostly in Lua. The plugin is currently
-  tested on as late as version (v0.5.0-dev+991-g74b343a6f).
+  Notmuch.nvim requires NeoVim (>=0.10) as it relies on modern APIs such as
+  `vim.system()`, buffer-local variables via `vim.b`, and other features
+  introduced in recent NeoVim releases. The plugin is written entirely in Lua.
 
   If your operating system or distribution only contains an older version, you
   can build the source code from HEAD or from the nightly branch (recommended)
@@ -272,6 +272,12 @@ option will be listed with its default value.
     This mode is ideal for automated syncing where you don't need to see the
     process details.
 
+  - `"terminal"`:
+    Opens a real PTY terminal split with full stdin support. Useful when
+    your sync command requires interactive input (e.g., GPG passphrase
+    prompts, OAuth authentication flows). The terminal starts in insert
+    mode for immediate interaction and closes automatically on success.
+
   Default value:
     `"buffer"`
 
@@ -328,6 +334,22 @@ option will be listed with its default value.
 
   Default value:
     See `config.lua` for plugin defaults.
+
+*suppress_deprecation_warning*
+  Controls whether the plugin shows a warning notification when the installed
+  version of notmuch uses the deprecated `notmuch_database_open` API (versions
+  older than API 0.32). Set to `true` to suppress this warning if you are
+  aware of the deprecation and do not wish to be notified.
+
+  Default value:
+    `false`
+
+  Example: >
+
+    require('notmuch').setup({
+      suppress_deprecation_warning = true,
+    })
+<
 
 *render_html_body*
   Controls whether HTML email bodies are rendered inline in thread view using
@@ -725,7 +747,9 @@ tagging, and retrieving messages or threads.
 
 - *Key Functions* ~
   The following operations are supported through the bindings:
-  - Opening the database: `notmuch_database_open`
+  - Opening the database: `notmuch_database_open_with_config` (preferred,
+    notmuch API 0.32+) with automatic fallback to the deprecated
+    `notmuch_database_open` for older versions
   - Creating queries: `notmuch_query_create`
   - Counting messages and threads: `notmuch_query_count_messages`, 
     `notmuch_query_count_threads`

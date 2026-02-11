@@ -31,16 +31,18 @@ the familiar Vim interface and motions.
 - 🔍 **Search Your Email**: Leverage `notmuch` to search your email interactively.
 - 🔗 **Thread Viewing**: Messages are loaded with folding and threading intact.
 - 📎 **Attachment Management**: View, open and save attachments easily.
-- ⬇️ **Offline Mail Sync**: Supports `mbsync` for efficient sync processes.
+- 🌐 **Inline HTML Rendering**: Render HTML email bodies as text via `w3m`.
+- ⬇️ **Offline Mail Sync**: Supports `mbsync` for efficient sync processes, with buffer, background, and interactive terminal modes.
 - 🔓 **Async Search**: Large mailboxes with thousands of email? No problem.
 - 🏷️ **Tag Management**: Conveniently add, remove, or toggle email tags.
+- 💻 **Pure Lua**: Fully implemented in Lua for performance and maintainability.
 - 🔭 (WIP) ~~**Telescope.nvim Integration**: Search interactively, extract URL's, jump
   efficiently, with the powerful file picker of choice.~~
 
 ## Requirements
 
-- **[NeoVim](https://github.com/neovim/neovim)**: Version 0.5 or later is
-  required due to LuaJIT support.
+- **[NeoVim](https://github.com/neovim/neovim)**: Version 0.10 or later is
+  required (uses `vim.system()`, `vim.b` buffer variables, and other modern APIs).
 - **[Notmuch](https://notmuchmail.org)**: Ensure Notmuch and libnotmuch library
   are installed
 - **[w3m](http://w3m.sourceforge.net/)** (optional): Required for inline HTML
@@ -79,7 +81,7 @@ vim.pack.add({
 vim.pack.add({
   {
     src = 'https://github.com/yousefakbar/notmuch.nvim',
-    version = 'v0.2.0', -- Or git commit, etc.
+    version = 'v0.3.0', -- Or git commit, etc.
   },
 })
 ```
@@ -129,11 +131,12 @@ You can configure several global options to tailor the plugin's behavior:
 | :----------------- | :-----------------------------------------------------------------------------: | :------------------------------ |
 | `notmuch_db_path`  | Directory containing the `.notmuch/` dir                                        | From `notmuch config`           |
 | `maildir_sync_cmd` | Bash command to run for syncing maildir                                         | `mbsync -a`                     |
-| `sync.sync_mode`   | Async mode for the `maildir_sync_cmd`                                           | `buffer`                        |
+| `sync.sync_mode`   | Sync display mode: `"buffer"`, `"background"`, or `"terminal"` (PTY with stdin) | `buffer`                        |
 | `keymaps`          | Configure any (WIP) command's keymap                                            | See `config.lua`[1]             |
 | `open_handler`     | Callback function for opening attachments                                       | Runs OS-aware `open`[2]         |
 | `view_handler`     | Callback function for converting attachments to text to view in floating window | See `default_view_handler()`[2] |
 | `render_html_body` | Render HTML email bodies inline using `w3m` (requires `w3m` installed)          | `false`                         |
+| `suppress_deprecation_warning` | Suppress the warning shown when using deprecated notmuch API (< 0.32) | `false`                         |
 
 [1]: https://github.com/yousefakbar/notmuch.nvim/blob/main/lua/notmuch/config.lua
 [2]: https://github.com/yousefakbar/notmuch.nvim/blob/main/lua/notmuch/handlers.lua
@@ -147,7 +150,7 @@ Example configuration in plugin manager (lazy.nvim):
         notmuch_db_path = "/home/xxx/Documents/Mail",
         maildir_sync_cmd = "mbsync personal",
         sync = {
-            sync_mode = "buffer" -- OR "background"
+            sync_mode = "buffer" -- OR "background" OR "terminal"
         },
         keymaps = {
             sendmail = "<C-g><C-g>",
