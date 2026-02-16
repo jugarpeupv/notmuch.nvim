@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Attachment filenames with `/` characters are now sanitized to prevent directory path errors when saving
+
 ## [0.3.0] - 2026-02-11
 
 ### Added

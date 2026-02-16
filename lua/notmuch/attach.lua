@@ -240,7 +240,7 @@ a.save_attachment_part = function(savedir, prompt_user)
   local id = string.match(v.nvim_buf_get_name(0), 'id:%C+')
 
   -- Use actual filename if available, otherwise generate from content-type
-  local filename = part.filename
+  local filename = part.filename:gsub('/', '-')
   if filename == "" then
     local ext = string.match(part.content_type, '%w+/(%w+)')
     if ext == 'plain' then ext = 'txt' end
