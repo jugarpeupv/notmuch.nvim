@@ -57,6 +57,7 @@ C.defaults = function()
     },
     suppress_deprecation_warning = false, -- Used for API deprecation warning suppression
     render_html_body = false, -- True means prioritize displaying rendered HTML
+    message_order = "newest-first", -- "newest-first" | "oldest-first" - Order of messages in thread view
     open_handler = function(attachment)
       require('notmuch.handlers').default_open_handler(attachment)
     end,

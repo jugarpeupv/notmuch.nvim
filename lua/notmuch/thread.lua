@@ -226,7 +226,8 @@ end
 --- @param depth number Message depth in the thread chain (0 for root message)
 --- @param lines table Accumulator array for buffer lines (modified in place)
 --- @param metadata table Accumulator array for thread metadata for buffer var
-local function build_message_lines(msg_node, depth, lines, metadata)
+--- @param skip_replies boolean If true, don't process replies recursively (for flattened view)
+local function build_message_lines(msg_node, depth, lines, metadata, skip_replies)
   -- Unpack msg_node into message and list of replies
   local msg = msg_node[1]
   local replies = msg_node[2] or {}
@@ -285,10 +286,11 @@ local function build_message_lines(msg_node, depth, lines, metadata)
     attachment_count = select(2, has_attachments(msg.body)),
   })
 
-  -- Process replies recursively
-  if replies and #replies > 0 then
+  -- Process replies recursively (only if not skipping)
+  if not skip_replies and replies and #replies > 0 then
+    -- Process replies in original order (maintaining hierarchy)
     for _, reply_node in ipairs(replies) do
-      build_message_lines(reply_node, depth + 1, lines, metadata)
+      build_message_lines(reply_node, depth + 1, lines, metadata, false)
     end
   end
 end
@@ -471,8 +473,44 @@ T.show_thread = function(threadid)
 
   -- Build buffer lines (also builds accumulated thread metadata)
   local lines = {}
-  for _, node in ipairs(thread) do
-    build_message_lines(node, 0, lines, metadata)
+  
+  -- Check if we need to sort messages by timestamp
+  local config = require('notmuch.config')
+  local should_reverse = config.options.message_order == "newest-first"
+  
+  if should_reverse then
+    -- Flatten all messages in the thread tree with their timestamps
+    local function flatten_messages(nodes, depth, flat_list)
+      for _, node in ipairs(nodes) do
+        local msg = node[1]
+        local replies = node[2] or {}
+        table.insert(flat_list, {
+          node = node,
+          depth = depth,
+          timestamp = msg.timestamp or 0
+        })
+        if #replies > 0 then
+          flatten_messages(replies, depth + 1, flat_list)
+        end
+      end
+    end
+    
+    -- Flatten all messages
+    local flat_messages = {}
+    flatten_messages(thread, 0, flat_messages)
+    
+    -- Sort by timestamp (newest first)
+    table.sort(flat_messages, function(a, b) return a.timestamp > b.timestamp end)
+    
+    -- Build lines for sorted messages (with depth set to 0 to remove indentation, skip_replies = true)
+    for _, item in ipairs(flat_messages) do
+      build_message_lines(item.node, 0, lines, metadata, true)
+    end
+  else
+    -- Process messages in original order (oldest first, maintaining hierarchy)
+    for _, node in ipairs(thread) do
+      build_message_lines(node, 0, lines, metadata, false)
+    end
   end
 
   -- Set metadata tags based on ordered list of seen tags during recursion
