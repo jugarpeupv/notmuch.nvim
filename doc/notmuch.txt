@@ -12,6 +12,8 @@ CONTENTS                                                     *notmuch-contents*
     Other Notmuch Plugins               |notmuch-other-plugins|
   Usage                                 |notmuch-usage|
     Commands                            |notmuch-commands|
+    Composing and Replying              |notmuch-compose|
+    Attachments                         |notmuch-attachments|
     Options                             |notmuch-options|
     Completion                          |notmuch-completion|
   Behavior                              |notmuch-behavior|
@@ -234,6 +236,117 @@ Notmuch.nvim plugin and the local mail system to search and browse.
 <
 		     Provides autocomplete for email addresses from the notmuch
 		     database. Essentially implemented by the |NmSearch| command.
+
+------------------------------------------------------------------------------
+COMPOSING AND REPLYING                                        *notmuch-compose*
+
+Notmuch.nvim supports composing new emails and replying to existing messages.
+The compose buffer is a standard editable buffer with email headers at the
+top and the message body below. Sending is handled by `msmtp`.
+
+                                                    *:ComposeMail*
+:ComposeMail [to]    Opens a compose buffer for a new email. Optionally
+		     provide a recipient address. The buffer is populated
+		     with headers (From, To, Cc, Subject) and a body area.
+
+		     Available from any notmuch buffer via the `C` keymap,
+		     or as a command from the command line: >
+
+		       :ComposeMail user@example.com
+<
+
+Replying~
+
+  In thread view, press `R` to reply to the message under the cursor. This
+  creates a compose buffer pre-populated with the reply headers and quoted
+  message text (via `notmuch reply`).
+
+Sending~
+
+  Once you have composed your email, press `<C-g><C-g>` (configurable via
+  |keymaps|) to send it. The plugin will prompt for confirmation, build the
+  MIME message (including any attachments), and send it via `msmtp`.
+
+Keymaps available in the compose buffer~
+
+  `<C-g><C-g>`   Send the email
+  `<C-g><C-a>`   Toggle the attachment window
+
+These keymaps are configurable via the |keymaps| option:
+
+  `keymaps.sendmail`            Default: `<C-g><C-g>`
+  `keymaps.attachment_window`   Default: `<C-g><C-a>`
+
+------------------------------------------------------------------------------
+ATTACHMENTS                                               *notmuch-attachments*
+
+There are several ways to attach files to an outgoing email. Attachments are
+encoded as base64 MIME parts in the outgoing message.
+
+Commands~
+                                                    *:Attach*
+:Attach {path}       Attach a file to the email being composed. Supports
+		     file completion. The path is expanded and converted to
+		     an absolute path before validation. >
+
+		       :Attach ~/Documents/report.pdf
+		       :Attach /tmp/screenshot.png
+<
+                                                    *:AttachRemove*
+:AttachRemove {path} Remove a previously attached file. Provides completion
+		     from the current attachment list.
+
+                                                    *:AttachList*
+:AttachList          Open the attachment buffer window. Same as pressing
+		     `<C-g><C-a>` in the compose buffer.
+
+Attachment Buffer~
+                                              *notmuch-attachment-buffer*
+  The attachment buffer is an editable buffer where each line below the
+  header represents a file path. It behaves similarly to oil.nvim: you can
+  freely edit lines, and changes are applied when you save with `:w`.
+
+  The buffer has a protected header area (title, hints, and separator line)
+  and a file area below it. Only the file area is editable.
+
+  Keymaps in the attachment buffer:
+
+  `a`    Add attachment via prompt with file completion
+  `dd`   Delete the attachment under the cursor
+  `p`    Paste below (with oil.nvim line resolution)
+  `P`    Paste above (with oil.nvim line resolution)
+  `gg`   Jump to the first file line (skips header)
+  `i`    Insert mode (cursor moved below header if needed)
+  `o`    Open a new line below
+  `O`    Open a new line above
+  `:w`   Validate all paths, remove invalid ones, and save
+  `q`    Close the attachment window
+
+  When saving with `:w`, each line is expanded and validated. Invalid paths
+  are removed from the buffer and a warning is shown. Valid paths are stored
+  in the `vim.b.notmuch_attachments` buffer variable on the compose buffer.
+
+Pasting from oil.nvim~
+                                              *notmuch-oil-integration*
+  If you use oil.nvim (https://github.com/stevearc/oil.nvim), you can yank
+  a line from an oil buffer and paste it into the attachment buffer with `p`
+  or `P`. The plugin uses oil's public API to resolve the file path:
+
+    - `oil.get_current_dir()` to get the directory of the oil buffer
+    - `oil.get_entry_on_line()` to get the actual filename for a line
+
+  This works regardless of how your oil columns are configured (icons,
+  permissions, dates, sizes, etc.) because the plugin matches against the
+  rendered buffer lines and asks oil for the real entry, rather than trying
+  to parse the display format.
+
+  The oil resolution also runs as a fallback when saving (`:w`) the
+  attachment buffer. If a line does not resolve as a direct file path, the
+  plugin checks open oil buffers to see if it matches a rendered line.
+
+  Note: oil.nvim is entirely optional. All attachment features work without
+  it. The `:Attach` command, the `a` prompt keymap, and typing absolute
+  paths directly into the buffer all work independently of oil.
 
 ------------------------------------------------------------------------------
 OPTIONS                                                       *notmuch-options*
@@ -647,11 +760,21 @@ plugin's project codebase.
     - Directly interacts with the Notmuch database via LuaJIT bindings.
 
   - **attach.lua**:
-    - Manages email attachments, providing functions to:
+    - Manages received email attachments, providing functions to:
       - List attachments in a thread.
       - Save attachments to a directory.
       - Open attachments using external programs.
     - Supports extracting URLs from messages and following GitHub patch links.
+
+  - **attach_buffer.lua**:
+    - Implements the oil.nvim-style attachment buffer for composing emails.
+    - Handles buffer creation, display, keymaps, and sync on `:w`.
+    - Resolves pasted oil.nvim lines to file paths using oil's public API.
+    - Validates and stores attachment paths in buffer-local variables.
+
+  - **attach_cmd.lua**:
+    - Defines the `:Attach`, `:AttachRemove`, and `:AttachList` buffer-local
+      commands available in compose buffers.
 
   - **handlers.lua**:
     - Defines default handlers for opening and viewing attachments.

@@ -9,8 +9,9 @@ with the [Notmuch mail indexer](https://notmuchmail.org).
 3. [Requirements](#requirements)
 4. [Installation](#installation)
 5. [Usage](#usage)
-6. [Configuration Options](#configuration-options)
-7. [License](#license)
+6. [Composing and Replying](#composing-and-replying)
+7. [Configuration Options](#configuration-options)
+8. [License](#license)
 
 ## Introduction
 
@@ -30,7 +31,10 @@ the familiar Vim interface and motions.
 - 📧 **Email Browsing**: Navigate emails with Vim-like movements.
 - 🔍 **Search Your Email**: Leverage `notmuch` to search your email interactively.
 - 🔗 **Thread Viewing**: Messages are loaded with folding and threading intact.
-- 📎 **Attachment Management**: View, open and save attachments easily.
+- 📎 **Attachment Management**: View, open and save attachments from received mail.
+- ✉️ **Compose and Reply**: Write new emails and replies with MIME support.
+- 📂 **Outgoing Attachments**: Attach files via commands, prompts, or paste from
+  [oil.nvim](https://github.com/stevearc/oil.nvim) buffers.
 - 🌐 **Inline HTML Rendering**: Render HTML email bodies as text via `w3m`.
 - ⬇️ **Offline Mail Sync**: Supports `mbsync` for efficient sync processes, with buffer, background, and interactive terminal modes.
 - 🔓 **Async Search**: Large mailboxes with thousands of email? No problem.
@@ -122,6 +126,72 @@ Here are the core commands within Notmuch.nvim:
   " Open inbox for a specific account
   :Inbox work@example.com
   ```
+
+## Composing and Replying
+
+### Commands
+
+- **`:ComposeMail [to]`**: Open a compose buffer for a new email. Optionally
+  provide a recipient address.
+- **`C`**: Compose a new email (mapped in hello, threads, and thread view buffers).
+- **`R`**: Reply to the message under the cursor (mapped in thread view).
+- **`<C-g><C-g>`**: Send the email from the compose buffer (configurable via
+  `keymaps.sendmail`).
+- **`<C-g><C-a>`**: Toggle the attachment window (configurable via
+  `keymaps.attachment_window`).
+
+The compose buffer is a standard editable buffer with email headers (`From`,
+`To`, `Cc`, `Subject`) at the top and the message body below. Sending uses
+`msmtp` under the hood.
+
+### Attachments
+
+There are several ways to attach files to an outgoing email:
+
+#### 1. `:Attach` command
+
+From the compose buffer, run `:Attach <path>` with file completion:
+
+```vim
+:Attach ~/Documents/report.pdf
+:Attach /tmp/screenshot.png
+```
+
+Use `:AttachRemove <path>` to remove an attachment (with completion from the
+current attachment list), and `:AttachList` to open the attachment window.
+
+#### 2. Attachment window
+
+Press `<C-g><C-a>` (or run `:AttachList`) to open the attachment buffer. This
+is an editable buffer (similar to oil.nvim) where each line below the header
+is a file path:
+
+| Key  | Action                       |
+| :--- | :--------------------------- |
+| `a`  | Add attachment via prompt    |
+| `dd` | Delete attachment            |
+| `p`  | Paste (with oil.nvim support)|
+| `:w` | Save/validate attachments    |
+| `q`  | Close window                 |
+
+You can also type or paste absolute paths directly and press `:w` to validate
+and save them.
+
+#### 3. Paste from oil.nvim
+
+If you use [oil.nvim](https://github.com/stevearc/oil.nvim), you can yank a
+line from an oil buffer (`yy`) and paste it into the attachment window with
+`p`. The plugin uses oil's API (`oil.get_entry_on_line()` and
+`oil.get_current_dir()`) to resolve the actual file path regardless of your
+oil column configuration.
+
+This also works as a fallback when saving (`:w`) the attachment buffer -- if a
+line doesn't resolve as a direct path, the plugin checks open oil buffers to
+see if it matches a rendered oil line and resolves it automatically.
+
+> **Note**: oil.nvim is entirely optional. All attachment features work without
+> it. The oil integration is a convenience for users who already use oil as
+> their file manager.
 
 ## Configuration Options
 

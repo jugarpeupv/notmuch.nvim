@@ -31,6 +31,13 @@ a.attach_handler = function(buf)
 
     -- Report success
     vim.notify(string.format('Attached: %s (%d total)', filepath, #attachments), vim.log.levels.INFO)
+    
+    -- Refresh attachment buffer if it exists
+    local buf_attach_name = 'attachments:' .. buf
+    local buf_attach = vim.fn.bufnr('^' .. vim.fn.escape(buf_attach_name, '^$.*[]~') .. '$')
+    if buf_attach ~= -1 then
+      require('notmuch.attach_buffer').refresh_attachment_display(buf_attach, buf)
+    end
   end
 end
 
@@ -49,7 +56,7 @@ a.remove_handler = function(buf)
 
     -- Show error if not found
     if not found_index then
-      vim.notify('File not in attachments (check with :AttachList): ' .. filepath, vim.log.levels.ERROR)
+      vim.notify('File not in attachments: ' .. filepath, vim.log.levels.ERROR)
       return
     end
 
@@ -59,6 +66,13 @@ a.remove_handler = function(buf)
 
     -- Report success
     vim.notify(string.format('Removed: %s (%d remaining)', filepath, #attachments), vim.log.levels.INFO)
+    
+    -- Refresh attachment buffer if it exists
+    local buf_attach_name = 'attachments:' .. buf
+    local buf_attach = vim.fn.bufnr('^' .. vim.fn.escape(buf_attach_name, '^$.*[]~') .. '$')
+    if buf_attach ~= -1 then
+      require('notmuch.attach_buffer').refresh_attachment_display(buf_attach, buf)
+    end
   end
 end
 
@@ -70,19 +84,8 @@ end
 
 a.list_handler = function(buf)
   return function()
-    local attachments = v.nvim_buf_get_var(buf, 'notmuch_attachments')
-
-    if #attachments == 0 then
-      print('No attachments. Try adding with :Attach')
-      return
-    end
-
-    print(string.format('Attachments (%d):', #attachments))
-    for i, path in ipairs(attachments) do
-      local stat = vim.uv.fs_stat(path)
-      local size_kb = stat and math.floor(stat.size / 1024) or 0
-      print(string.format('  [%d] %s (%d KB)', i, path, size_kb))
-    end
+    local ok, buf_attach = pcall(vim.api.nvim_buf_get_var, buf, 'notmuch_attach_buf')
+    require('notmuch.attach_buffer').show_attachment_window(buf, ok and buf_attach or nil)
   end
 end
 
