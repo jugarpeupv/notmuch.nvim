@@ -79,10 +79,22 @@ a.open_attachment_part = function()
   config.options.open_handler({ path = vim.fn.expand(filepath) })
 end
 
+--- Returns true if the given filepath looks like a renderable image.
+---@param path string
+---@return boolean
+local function is_image_path(path)
+  return path:match('%.[pP][nN][gG]$') ~= nil
+    or path:match('%.[jJ][pP][eE]?[gG]$') ~= nil
+    or path:match('%.[gG][iI][fF]$') ~= nil
+    or path:match('%.[wW][eE][bB][pP]$') ~= nil
+    or path:match('%.[aA][vV][iI][fF]$') ~= nil
+end
+
 --- Views the MIME part at cursor in a floating window.
 --
--- Saves the attachment to /tmp, processes it with view_handler,
--- and displays the output in a centered floating window.
+-- For image attachments (png/jpg/gif/webp/avif) the image is rendered
+-- directly in the floating window via image.nvim when available.
+-- For all other MIME types the configured view_handler is used as before.
 -- Press 'q' to close the window.
 --
 ---@return nil
@@ -95,8 +107,83 @@ a.view_attachment_part = function()
     return nil
   end
 
-  -- Process with user's configured view_handler
-  local output = config.options.view_handler({ path = vim.fn.expand(filepath) })
+  local expanded_path = vim.fn.expand(filepath)
+
+  -- ── Image path ────────────────────────────────────────────────────────
+  if is_image_path(expanded_path) then
+    local ok_img, image_api = pcall(require, 'image')
+    if ok_img then
+      -- Create a scratch buffer for the floating window
+      local buf = v.nvim_create_buf(false, true)
+      vim.bo[buf].bufhidden = 'wipe'
+      vim.bo[buf].modifiable = false
+
+      -- Floating window - calculate size (leave a 1-cell border inside)
+      local width = math.floor(vim.o.columns * 0.8)
+      local height = math.floor(vim.o.lines * 0.8)
+      local col = math.floor((vim.o.columns - width) / 2)
+      local row = math.floor((vim.o.lines - height) / 2)
+
+      local win = v.nvim_open_win(buf, true, {
+        border = 'rounded',
+        relative = 'editor',
+        style = 'minimal',
+        height = height,
+        width = width,
+        row = row,
+        col = col,
+      })
+
+      -- Render the image inside the floating window.
+      -- Do NOT pass x/y: those are absolute terminal coordinates and cause
+      -- misalignment on repeated opens. Let image.nvim derive position from
+      -- the window handle instead.
+      local img = image_api.from_file(expanded_path, {
+        window = win,
+        buffer = buf,
+        max_width_window_percentage = 100,
+        max_height_window_percentage = 100,
+      })
+
+      if img then
+        -- Defer render so the floating window geometry is fully settled.
+        vim.defer_fn(function()
+          if v.nvim_win_is_valid(win) then
+            img:render()
+          end
+        end, 50)
+      else
+        vim.notify('image.nvim: could not load image: ' .. expanded_path, vim.log.levels.WARN)
+      end
+
+      -- q clears the image and closes the window.
+      -- IMPORTANT: nil out img.window BEFORE calling clear() so that
+      -- image.nvim's renderer doesn't re-insert a zombie entry into
+      -- state.images when it fires WinNew/WinResized autocmds for the
+      -- next floating window.  Without this, the stale image object
+      -- (with the now-closed window id) gets re-rendered at the wrong
+      -- position on subsequent opens.
+      vim.keymap.set('n', 'q', function()
+        if img then
+          pcall(function()
+            img.window = nil
+            img.buffer = nil
+            img:clear()
+          end)
+        end
+        if v.nvim_win_is_valid(win) then
+          v.nvim_win_close(win, true)
+        end
+      end, { buffer = buf, nowait = true })
+
+      return
+    end
+    -- image.nvim not available: fall through to text handler below
+    vim.notify('image.nvim not available; falling back to view_handler', vim.log.levels.WARN)
+  end
+
+  -- ── Non-image (or image.nvim unavailable) path ────────────────────────
+  local output = config.options.view_handler({ path = expanded_path })
   local lines = vim.split(output, '\n')
 
   -- Create new buffer for floating window
@@ -109,9 +196,9 @@ a.view_attachment_part = function()
   local row = math.floor((vim.o.lines - height) / 2)
 
   local win = vim.api.nvim_open_win(buf, true, {
-    border = "rounded",
-    relative = "editor",
-    style = "minimal",
+    border = 'rounded',
+    relative = 'editor',
+    style = 'minimal',
     height = height,
     width = width,
     row = row,
