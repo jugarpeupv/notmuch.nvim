@@ -406,6 +406,37 @@ function T.setup_cursor_tracking(bufnr)
   update_current_message()
 end
 
+--- Jump to the start_line of the next message in the thread
+function T.next_message()
+  local line = vim.api.nvim_win_get_cursor(0)[1]
+  local messages = vim.b.notmuch_messages
+  if not messages then return end
+  for _, msg in ipairs(messages) do
+    if msg.start_line > line then
+      vim.api.nvim_win_set_cursor(0, { msg.start_line, 0 })
+      return
+    end
+  end
+end
+
+--- Jump to the start_line of the previous message in the thread
+function T.prev_message()
+  local line = vim.api.nvim_win_get_cursor(0)[1]
+  local messages = vim.b.notmuch_messages
+  if not messages then return end
+  local target = nil
+  for _, msg in ipairs(messages) do
+    if msg.start_line < line then
+      target = msg
+    else
+      break
+    end
+  end
+  if target then
+    vim.api.nvim_win_set_cursor(0, { target.start_line, 0 })
+  end
+end
+
 --- Fetches and renders a thread as buffer lines
 ---
 --- Runs `notmuch show --format=json` to fetch the thread, parses the JSON

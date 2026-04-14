@@ -197,11 +197,19 @@ nm.show_thread = function(s)
     threadid = string.match(s, "[0-9a-z]+", 7)
   end
 
-  -- Open buffer if already exists, otherwise create new `buf`
-  local bufno = vim.fn.bufnr('thread:' .. threadid)
+  -- Open buffer if already exists and has content, otherwise create new `buf`
+  -- Match by prefix since the buffer name may include the subject after the thread ID
+  local bufno = vim.fn.bufnr('^thread:' .. threadid)
   if bufno ~= -1 then
-    v.nvim_win_set_buf(0, bufno)
-    return true
+    local line_count = v.nvim_buf_line_count(bufno)
+    local first_line = (line_count > 0) and v.nvim_buf_get_lines(bufno, 0, 1, false)[1] or ""
+    if line_count > 1 or first_line ~= "" then
+      -- Buffer exists and has real content, switch to it
+      v.nvim_win_set_buf(0, bufno)
+      return true
+    end
+    -- Buffer exists but is empty (e.g. from a failed previous load) — wipe and reload
+    v.nvim_buf_delete(bufno, { force = true })
   end
   local buf = v.nvim_create_buf(true, true)
   v.nvim_buf_set_name(buf, "thread:" .. threadid)
@@ -209,7 +217,18 @@ nm.show_thread = function(s)
 
   -- Get output (JSON parsed) and display lines in buffer
   local lines, metadata = require('notmuch.thread').show_thread(threadid)
+  if #lines == 0 then
+    vim.notify('show_thread: no content returned for thread:' .. threadid, vim.log.levels.WARN)
+    v.nvim_buf_delete(buf, { force = true })
+    return nil
+  end
   v.nvim_buf_set_lines(buf, 0, -1, false, lines)
+
+  -- Rename buffer to include the subject for easier buffer switching
+  local subject = (metadata.thread or {}).subject or ""
+  if subject ~= "" then
+    v.nvim_buf_set_name(buf, "thread:" .. threadid .. " " .. subject)
+  end
 
   -- Set up buffer-local variables with thread metadata
   vim.b.notmuch_thread = metadata.thread

@@ -338,10 +338,11 @@ a.get_attachments_from_cursor_msg = function()
   local id = thread.get_current_message_id()
   if id == nil then return nil end
 
-  -- If attachment buffer already exists, notify and return
+  -- If attachment buffer already exists, open it in a split
   local bufnr = vim.fn.bufnr('id:' .. id)
   if bufnr ~= -1 then
-    vim.notify('Attachment list for this msg is already open in buffer: ' .. bufnr, vim.log.levels.WARN)
+    v.nvim_command('belowright 8split')
+    v.nvim_win_set_buf(0, bufnr)
     return nil
   end
 

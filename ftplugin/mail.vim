@@ -9,8 +9,8 @@ if match(bufname("%"), "^thread:") != -1
 	command -buffer FollowPatch :call v:lua.require('notmuch.attach').follow_github_patch(getline('.'))
 
 	nnoremap <buffer> U <Cmd>call v:lua.require('notmuch.attach').get_urls_from_cursor_msg()<CR>
-	nnoremap <buffer> <silent> <Tab> zj
-	nnoremap <buffer> <silent> <S-Tab> zk
+	nnoremap <buffer> <silent> <Tab>   <Cmd>call v:lua.require('notmuch.thread').next_message()<CR>
+	nnoremap <buffer> <silent> <S-Tab> <Cmd>call v:lua.require('notmuch.thread').prev_message()<CR>
 	nnoremap <buffer> <silent> <Enter> za
 	nnoremap <buffer> a <Cmd>call v:lua.require('notmuch.attach').get_attachments_from_cursor_msg()<CR>
 	nnoremap <buffer> r <Cmd>call v:lua.require('notmuch.refresh').refresh_thread_buffer()<CR>
