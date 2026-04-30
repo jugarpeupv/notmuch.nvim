@@ -75,10 +75,20 @@ end
 nm.notmuch_hello = function()
   local bufno = vim.fn.bufnr('Tags')
   if bufno ~= -1 then
-    v.nvim_win_set_buf(0, bufno)
-  else
-    nm.show_all_tags() -- Move to tag.lua
+    -- Only reuse the buffer if it actually has content.
+    -- If a previous load failed silently the buffer may be empty; in that
+    -- case wipe it so show_all_tags() does a fresh fetch below.
+    local line_count = v.nvim_buf_line_count(bufno)
+    local first_line = (line_count > 0) and v.nvim_buf_get_lines(bufno, 0, 1, false)[1] or ""
+    if line_count > 1 or first_line ~= "" then
+      v.nvim_win_set_buf(0, bufno)
+      print("Welcome to Notmuch.nvim! Choose a tag to search it.")
+      return
+    end
+    -- Buffer exists but is empty — wipe it and reload
+    v.nvim_buf_delete(bufno, { force = true })
   end
+  nm.show_all_tags()
   print("Welcome to Notmuch.nvim! Choose a tag to search it.")
 end
 
@@ -276,10 +286,25 @@ end
 -- @usage
 -- nm.show_all_tags() -- opens the `hello` page
 nm.show_all_tags = function()
-  -- Fetch all tags available in the notmuch database
-  local db = require 'notmuch.cnotmuch' (config.options.notmuch_db_path, 0)
-  local tags = db.get_all_tags()
-  db.close()
+  -- Wrap the C library calls so a DB error doesn't leave a half-created buffer
+  local ok, result = pcall(function()
+    local db = require 'notmuch.cnotmuch' (config.options.notmuch_db_path, 0)
+    local tags = db.get_all_tags()
+    db.close()
+    return tags
+  end)
+
+  if not ok then
+    vim.notify('notmuch.nvim: failed to open database: ' .. tostring(result), vim.log.levels.ERROR)
+    return
+  end
+
+  local tags = result
+
+  if not tags or #tags == 0 then
+    vim.notify('notmuch.nvim: no tags found in database', vim.log.levels.WARN)
+    return
+  end
 
   -- Create dedicated buffer. Content is fetched using `db.get_all_tags()`
   local buf = v.nvim_create_buf(true, true)
