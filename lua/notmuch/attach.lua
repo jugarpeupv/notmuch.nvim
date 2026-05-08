@@ -68,14 +68,117 @@ end
 -- Saves the attachment to /tmp first, then passes the path to the
 -- open_handler callback (typically xdg-open or similar).
 --
+-- Special case for text/html: CID image references (src="cid:...") are
+-- rewritten to local relative paths and all referenced images are extracted
+-- to the same temp directory, so the browser can display them.
+--
 ---@return nil
 a.open_attachment_part = function()
-  local filepath = a.save_attachment_part('/tmp', false)
+  local part = get_part_at_cursor()
+  if not part then return nil end
 
-  if not filepath then
+  -- For HTML parts, do CID-aware open
+  if part.content_type == 'text/html' then
+    local msg_id = string.match(v.nvim_buf_get_name(0), 'id:%C+')
+    if not msg_id then
+      -- Fallback: open as-is
+      local fp = a.save_attachment_part('/tmp', false)
+      if fp then config.options.open_handler({ path = vim.fn.expand(fp) }) end
+      return nil
+    end
+
+    -- Create a unique temp directory for this open so images don't collide
+    local tmpdir = '/tmp/notmuch_html_' .. vim.fn.getpid() .. '_' .. part.id
+    vim.fn.mkdir(tmpdir, 'p')
+
+    -- Extract the raw HTML content
+    local html_cmd = string.format(
+      "notmuch show --exclude=false --part=%d '%s'",
+      part.id, msg_id
+    )
+    local html_raw = vim.fn.system(html_cmd)
+    if vim.v.shell_error ~= 0 then
+      vim.notify('notmuch: failed to extract HTML part', vim.log.levels.ERROR)
+      return nil
+    end
+
+    -- Collect all CID references from the HTML: src="cid:FILENAME@DOMAIN"
+    -- Build a set of unique filenames to extract.
+    local cid_filenames = {}  -- { full_cid_ref -> bare_filename }
+    for cid_ref in html_raw:gmatch('[Cc][Ii][Dd]:([^"\'> \t\r\n]+)') do
+      local bare = cid_ref:match('^([^@]+)') or cid_ref
+      cid_filenames[cid_ref] = bare
+    end
+
+    -- Get the full MIME tree to map filename -> part id
+    local json_cmd = string.format(
+      "notmuch show --exclude=false --format=json '%s'", msg_id
+    )
+    local json_raw = vim.fn.system(json_cmd)
+    local ok, parsed = pcall(vim.fn.json_decode, json_raw)
+    local part_map = {}  -- bare_filename -> part_id
+    if ok and parsed then
+      local function collect(parts)
+        for _, p in ipairs(parts or {}) do
+          if p.filename and p.id then
+            part_map[p.filename] = p.id
+            part_map[p.filename:lower()] = p.id
+          end
+          if type(p.content) == 'table' then collect(p.content) end
+        end
+      end
+      -- notmuch show JSON: list of threads -> messages -> [msg, replies]
+      local function walk_threads(node)
+        if type(node) ~= 'table' then return end
+        if node['body'] then
+          collect(node['body'])
+        else
+          for _, child in ipairs(node) do walk_threads(child) end
+        end
+      end
+      walk_threads(parsed)
+    end
+
+    -- Rewrite HTML: replace cid:FILENAME@DOMAIN with bare FILENAME
+    local html_rewritten = html_raw:gsub(
+      '[Cc][Ii][Dd]:([^"\'> \t\r\n]+)',
+      function(cid_ref)
+        local bare = cid_ref:match('^([^@]+)') or cid_ref
+        return bare
+      end
+    )
+
+    -- Write rewritten HTML to tmpdir
+    local html_path = tmpdir .. '/index.html'
+    local f = io.open(html_path, 'w')
+    if not f then
+      vim.notify('notmuch: cannot write to ' .. html_path, vim.log.levels.ERROR)
+      return nil
+    end
+    f:write(html_rewritten)
+    f:close()
+
+    -- Extract each referenced CID image into tmpdir (synchronous, fast for small counts)
+    for _, bare in pairs(cid_filenames) do
+      local pid = part_map[bare] or part_map[bare:lower()]
+      if pid then
+        local safe = bare:gsub('/', '-')
+        local img_path = tmpdir .. '/' .. safe
+        local extract_cmd = string.format(
+          "notmuch show --exclude=false --part=%d '%s' > %s",
+          pid, msg_id, vim.fn.shellescape(img_path)
+        )
+        vim.fn.system(extract_cmd)
+      end
+    end
+
+    config.options.open_handler({ path = html_path })
     return nil
   end
 
+  -- Default: save and open as-is
+  local filepath = a.save_attachment_part('/tmp', false)
+  if not filepath then return nil end
   config.options.open_handler({ path = vim.fn.expand(filepath) })
 end
 

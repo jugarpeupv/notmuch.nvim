@@ -37,6 +37,23 @@
 local T = {}
 local config = require('notmuch.config')
 
+--- Accumulated list of inline CID images found during the last show_thread call.
+--- Each entry: { line = number, msg_id = string, filename = string, part_id = number }
+--- Line numbers are relative to the lines[] table (1-based), before HEADER_OFFSET is added.
+local _inline_images = {}
+
+--- Returns the list of inline images found during the last show_thread() call.
+--- Consumers should call this after show_thread() returns.
+---@return table[]
+function T.get_inline_images()
+  return _inline_images
+end
+
+--- Clears the inline images accumulator. Called at the start of show_thread().
+function T.reset_inline_images()
+  _inline_images = {}
+end
+
 --------------------------------------------------------------------------------
 -- PRIVATE: Thread parsing helpers
 --------------------------------------------------------------------------------
@@ -168,10 +185,41 @@ end
 --- - attachments (with filename): Adds marker with filename and hint
 --- - other inline (images, etc): Adds type marker
 ---
+--- When msg_id is provided, CID image references are resolved by
+--- pre-parsing the raw HTML for <img src="cid:FILENAME@..."> tags
+--- (before w3m strips them to bare "[cid]") and then matching the
+--- ordered "[cid]" tokens in the w3m output back to their filenames.
+--- Resolved images are recorded in the module-level _inline_images
+--- accumulator so callers can render them with image.nvim after the
+--- buffer is fully populated.
+---
 --- @param body table MIME part objects from notmuch JSON output
+--- @param msg_id string|nil Message ID for tracking inline CID images
 --- @return table lines Array of buffer lines for the message body
-local function process_body_parts(body)
+--- @param line_offset number  Number of lines already in the global buffer before this body starts.
+---                            Used to compute absolute line numbers for _inline_images entries.
+local function process_body_parts(body, msg_id, line_offset)
+  line_offset = line_offset or 0
   local lines = {}
+
+  -- Build a map of filename -> part_id for all named parts in this message.
+  -- Used to resolve [cid:filename@...] references to a notmuch part number.
+  local cid_map = {}
+  if msg_id then
+    local function collect_cids(parts)
+      for _, part in ipairs(parts or {}) do
+        if part.filename and part.id then
+          -- Store both the bare filename and lowercased variant for matching
+          cid_map[part.filename] = part.id
+          cid_map[part.filename:lower()] = part.id
+        end
+        if type(part.content) == 'table' then
+          collect_cids(part.content)
+        end
+      end
+    end
+    collect_cids(body)
+  end
 
   local function walk(parts, parent_type)
     for _, part in ipairs(parts) do
@@ -190,8 +238,29 @@ local function process_body_parts(body)
       elseif content_type == 'text/plain' and part.content then
         if parent_type ~= 'multipart/alternative' or not config.options.render_html_body then
           -- Always show inline plain text (including signatures, etc.)
-          for _, line in ipairs(vim.split(part.content, '\n', { plain = true })) do
+          -- Also scan for bare [cid:filename@...] references that Outlook and
+          -- similar clients embed directly in the plain-text alternative.
+          local plain_lines = vim.split(part.content, '\n', { plain = true })
+          local base_line = line_offset + #lines + 1
+          for i, line in ipairs(plain_lines) do
             table.insert(lines, line)
+            if msg_id then
+           -- Match every [cid:FILENAME@...] on this line (there may be several)
+              local col_idx = 0
+              for cid_ref in line:gmatch('%[cid:([^@%]]+)[^%]]*%]') do
+                local part_id = cid_map[cid_ref] or cid_map[cid_ref:lower()]
+                if part_id then
+                  table.insert(_inline_images, {
+                    line = base_line + i - 1,
+                    col = col_idx,
+                    msg_id = msg_id,
+                    filename = cid_ref,
+                    part_id = part_id,
+                  })
+                  col_idx = col_idx + 1
+                end
+              end
+            end
           end
           table.insert(lines, "")
         end
@@ -206,7 +275,52 @@ local function process_body_parts(body)
             table.insert(lines, "")
           end
         else -- config.options.render_html_body == true
+          -- Before rendering with w3m, extract the ordered list of CID filenames
+          -- from the raw HTML.  w3m strips the filename and only outputs "[cid]",
+          -- so we must capture the mapping *before* the text dump loses it.
+          -- The order of [cid] tokens in the w3m output matches the order of
+          -- <img src="cid:..."> tags in the source HTML.
+          local ordered_cids = {}
+          if msg_id then
+            for cid_ref in part.content:gmatch('[Cc][Ii][Dd]:([^"\'> \t\r\n]+)') do
+              -- cid_ref may be "filename.png@domain" or just "filename.png"
+              -- Extract bare filename (everything before the first '@' if present)
+              local filename = cid_ref:match('^([^@]+)') or cid_ref
+              table.insert(ordered_cids, filename)
+            end
+          end
+
           local html_content = render_html(part.content)
+
+          -- Match each "[cid]" token in the rendered output (in order) to the
+          -- filename we captured from the raw HTML.
+          if msg_id and #ordered_cids > 0 then
+            local cid_index = 1
+            local base_line = line_offset + #lines + 1
+            for i, rendered_line in ipairs(html_content) do
+              -- A line may contain one or more bare [cid] tokens
+              local _, count = rendered_line:gsub('%[cid%]', '')
+              local col_idx = 0
+              for _ = 1, count do
+                if cid_index <= #ordered_cids then
+                  local filename = ordered_cids[cid_index]
+                  local part_id = cid_map[filename] or cid_map[filename:lower()]
+                  if part_id then
+                    table.insert(_inline_images, {
+                      line = base_line + i - 1,
+                      col = col_idx,
+                      msg_id = msg_id,
+                      filename = filename,
+                      part_id = part_id,
+                    })
+                    col_idx = col_idx + 1
+                  end
+                  cid_index = cid_index + 1
+                end
+              end
+            end
+          end
+
           vim.list_extend(lines, html_content)
           table.insert(lines, "")
         end
@@ -259,8 +373,9 @@ local function build_message_lines(msg_node, depth, lines, metadata, skip_replie
   -- Track message fold starting line (line with '{{{' fold opening marker)
   local fold_line = start_line + 1
 
-  -- Extract body and content
-  local body = process_body_parts(msg.body)
+  -- Extract body and content (pass msg.id and current line count so CID image
+  -- line numbers are absolute within the global lines[] accumulator)
+  local body = process_body_parts(msg.body, msg.id, #lines)
   vim.list_extend(lines, body)
 
   -- Add fold end marker
@@ -446,6 +561,9 @@ end
 --- @return table lines Array of strings ready for buffer display
 --- @return table thread_metadata Thread metadata to be exported to buffer var
 T.show_thread = function(threadid)
+  -- Reset inline images accumulator for this thread
+  T.reset_inline_images()
+
   -- Run `notmuch show` with JSON format
   local res = vim.system({
     'notmuch', 'show',

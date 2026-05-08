@@ -257,6 +257,74 @@ nm.show_thread = function(s)
 
   -- Set up cursor tracking for updating vim.b.notmuch_current
   require('notmuch.thread').setup_cursor_tracking(buf)
+
+  -- Render any inline CID images found during thread rendering (requires image.nvim)
+  local inline_images = require('notmuch.thread').get_inline_images()
+  if #inline_images > 0 then
+    local win = v.nvim_get_current_win()
+    require('notmuch.images').render_inline_images(buf, win, inline_images)
+    -- Clear images when the buffer is wiped to avoid ghost renders
+    v.nvim_create_autocmd('BufWipeout', {
+      buffer = buf,
+      once = true,
+      callback = function()
+        require('notmuch.images').clear_images(buf)
+      end,
+    })
+
+    -- gx over a [cid:filename@...] line opens the image with the system handler
+    vim.keymap.set('n', 'gx', function()
+      local line = vim.api.nvim_get_current_line()
+      local cursor_col = vim.api.nvim_win_get_cursor(0)[2] + 1  -- 1-based
+
+      -- Find which [cid:FILENAME@...] token the cursor is inside
+      local found_filename = nil
+      local search_pos = 1
+      while true do
+        local token_start, token_end, cid_ref = line:find('%[cid:([^%]]+)%]', search_pos)
+        if not token_start then break end
+        if cursor_col >= token_start and cursor_col <= token_end then
+          found_filename = cid_ref:match('^([^@]+)') or cid_ref
+          break
+        end
+        search_pos = token_end + 1
+      end
+
+      if not found_filename then
+        -- Not on a CID token — fall back to default gx behaviour
+        vim.cmd('normal! gx')
+        return
+      end
+
+      -- Find matching entry in inline_images (first match for this filename on current line)
+      local cur_bufline = vim.api.nvim_win_get_cursor(0)[1]  -- 1-based buffer line
+      local entry
+      for _, e in ipairs(inline_images) do
+        -- entry.line is 1-based in lines[], buffer line = entry.line + HEADER_OFFSET
+        local entry_bufline = e.line + 2  -- HEADER_OFFSET = 2
+        if entry_bufline == cur_bufline
+          and (e.filename == found_filename or e.filename:lower() == found_filename:lower()) then
+          entry = e
+          break
+        end
+      end
+      -- Fallback: match by filename alone (different message, same filename)
+      if not entry then
+        for _, e in ipairs(inline_images) do
+          if e.filename == found_filename or e.filename:lower() == found_filename:lower() then
+            entry = e
+            break
+          end
+        end
+      end
+
+      if not entry then
+        vim.notify('notmuch: no CID part found for: ' .. found_filename, vim.log.levels.WARN)
+        return
+      end
+      require('notmuch.images').open_cid(entry)
+    end, { buffer = buf, desc = 'Open CID inline image with system handler' })
+  end
 end
 
 -- Counts the number of threads matching the search terms
