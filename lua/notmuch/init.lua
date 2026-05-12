@@ -137,8 +137,16 @@ nm.search_terms = function(search, jumptothreadid)
     if not v.nvim_buf_is_valid(buf) then
       return
     end
-    -- Completion logic
+    -- Trim the trailing blank line that the async reader may leave behind
     local line_count = v.nvim_buf_line_count(buf)
+    local last_line = v.nvim_buf_get_lines(buf, -2, -1, false)[1] or ''
+    if last_line == '' and line_count > 2 then
+      vim.bo[buf].modifiable = true
+      v.nvim_buf_set_lines(buf, -2, -1, false, {})
+      vim.bo[buf].modifiable = false
+      line_count = line_count - 1
+    end
+    -- Completion logic
     if line_count > 1 then num_threads_found = line_count - 1 end
     print('Found ' .. num_threads_found .. ' threads')
     vim.fn.search(jumptothreadid)
@@ -146,7 +154,6 @@ nm.search_terms = function(search, jumptothreadid)
 
   -- Set cursor at head of buffer, declare filetype, and disable modifying
   v.nvim_win_set_cursor(0, { 1, 0 })
-  v.nvim_buf_set_lines(buf, -2, -1, true, {})
   vim.bo.filetype = "notmuch-threads"
   vim.bo.modifiable = false
 end
