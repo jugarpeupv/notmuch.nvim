@@ -32,11 +32,12 @@ end
 ---The buffer is modifiable below the header so it works like oil.nvim.
 ---@param main_buf number The compose/reply buffer
 ---@return number buf_attach The attachment buffer
-AB.create_attachment_buffer = function(main_buf)
+AB.create_attachment_buffer = function(main_buf, label)
   -- listed=true, scratch=false so Neovim does NOT force nomodifiable
   local buf_attach = v.nvim_create_buf(true, false)
 
-  v.nvim_buf_set_name(buf_attach, 'attachments:' .. main_buf)
+  local name = label and ('attachments:' .. label) or ('attachments:' .. main_buf)
+  v.nvim_buf_set_name(buf_attach, name)
 
   vim.bo[buf_attach].buftype = 'acwrite'
   vim.bo[buf_attach].bufhidden = 'hide'

@@ -265,21 +265,10 @@ nm.show_thread = function(s)
   -- Set up cursor tracking for updating vim.b.notmuch_current
   require('notmuch.thread').setup_cursor_tracking(buf)
 
-  -- Render any inline CID images found during thread rendering (requires image.nvim)
+  -- Set up gx keymap: pressing gx over a [cid:filename@...] token opens the
+  -- image with the system handler (extraction is async, no in-buffer rendering).
   local inline_images = require('notmuch.thread').get_inline_images()
   if #inline_images > 0 then
-    local win = v.nvim_get_current_win()
-    require('notmuch.images').render_inline_images(buf, win, inline_images)
-    -- Clear images when the buffer is wiped to avoid ghost renders
-    v.nvim_create_autocmd('BufWipeout', {
-      buffer = buf,
-      once = true,
-      callback = function()
-        require('notmuch.images').clear_images(buf)
-      end,
-    })
-
-    -- gx over a [cid:filename@...] line opens the image with the system handler
     vim.keymap.set('n', 'gx', function()
       local line = vim.api.nvim_get_current_line()
       local cursor_col = vim.api.nvim_win_get_cursor(0)[2] + 1  -- 1-based
@@ -303,7 +292,7 @@ nm.show_thread = function(s)
         return
       end
 
-      -- Find matching entry in inline_images (first match for this filename on current line)
+      -- Find matching entry in inline_images (prefer match on current line)
       local cur_bufline = vim.api.nvim_win_get_cursor(0)[1]  -- 1-based buffer line
       local entry
       for _, e in ipairs(inline_images) do

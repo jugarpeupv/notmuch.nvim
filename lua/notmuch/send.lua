@@ -135,11 +135,13 @@ s.sendmail = function(filename)
 end
 
 --- Sets up the attachment buffer and keymaps common to both compose and reply
-local setup_attachments = function(buf)
+--- @param buf number  Main compose/reply buffer
+--- @param label string|nil  Human-readable label for the attachment buffer name (e.g. thread id)
+local setup_attachments = function(buf, label)
   vim.api.nvim_buf_set_var(buf, 'notmuch_attachments', {})
 
   local attach_buffer = require('notmuch.attach_buffer')
-  local buf_attach = attach_buffer.create_attachment_buffer(buf)
+  local buf_attach = attach_buffer.create_attachment_buffer(buf, label)
 
   -- :Attach and :AttachRemove commands
   local attach_cmd = require('notmuch.attach_cmd')
@@ -161,11 +163,32 @@ local setup_attachments = function(buf)
     desc = 'Open attachment buffer'
   })
 
-  -- Keymap for showing attachment window
-  vim.keymap.set('n', config.options.keymaps.attachment_window, function()
+  -- Keymap for toggling the attachment window:
+  -- - If currently in the attachment buffer → close its window and go back
+  -- - If the attachment window is already open elsewhere → focus it
+  -- - Otherwise → open it in a split below
+  -- Registered on both the reply buffer and the attachment buffer.
+  local function toggle_attachment_window()
     local ok, current_buf_attach = pcall(v.nvim_buf_get_var, buf, 'notmuch_attach_buf')
-    attach_buffer.show_attachment_window(buf, ok and current_buf_attach or nil)
-  end, { buffer = true })
+    local buf_attach = ok and current_buf_attach or nil
+
+    -- If we are currently inside the attachment buffer, close this window
+    if buf_attach and v.nvim_buf_is_valid(buf_attach)
+      and v.nvim_get_current_buf() == buf_attach then
+      local wins = vim.fn.win_findbuf(buf_attach)
+      if #wins > 0 then
+        v.nvim_win_close(wins[1], false)
+      end
+      return
+    end
+
+    attach_buffer.show_attachment_window(buf, buf_attach)
+  end
+
+  vim.keymap.set('n', config.options.keymaps.attachment_window, toggle_attachment_window,
+    { buffer = buf, desc = 'Toggle attachment window' })
+  vim.keymap.set('n', config.options.keymaps.attachment_window, toggle_attachment_window,
+    { buffer = buf_attach, desc = 'Toggle attachment window' })
 
   return buf_attach
 end
@@ -175,21 +198,85 @@ s.reply = function()
   local id = thread.get_current_message_id()
   if not id then return end
 
+  -- Build a reply filename that embeds both the thread id and message id so
+  -- the same draft is reused if the user presses R again on the same thread.
+  local thread_meta = vim.b.notmuch_thread or {}
+  local thread_id = thread_meta.id or 'unknown'
+  local subject = thread_meta.subject or ''
+  local label = thread_id .. (subject ~= '' and (' - ' .. subject) or '')
+  if #label > 100 then label = label:sub(1, 100) end
+  local sanitized_thread = thread_id:gsub('/', '-')
   local sanitized_id = id:gsub('/', '-')
-  local reply_filename = '/tmp/reply-' .. sanitized_id .. '.eml'
+  local reply_filename = '/tmp/reply-' .. sanitized_thread .. '-' .. sanitized_id .. '.eml'
 
-  local buf = v.nvim_create_buf(true, false)
-  v.nvim_win_set_buf(0, buf)
-  vim.cmd.edit(reply_filename)
+  -- If a draft already exists for this message, reopen it instead of
+  -- generating a fresh reply — preserves any edits the user made.
+  local draft_exists = u.file_exists(reply_filename)
 
-  if not u.file_exists(reply_filename) then
-    vim.cmd('silent 0read! notmuch reply id:' .. id)
+  -- Check if there is already an open buffer for this draft and switch to it.
+  local existing_bufnr = vim.fn.bufnr(reply_filename)
+  if existing_bufnr ~= -1 and vim.api.nvim_buf_is_loaded(existing_bufnr) then
+    vim.api.nvim_win_set_buf(0, existing_bufnr)
+    return
   end
 
-  vim.bo.bufhidden = "wipe"
-  v.nvim_win_set_cursor(0, { 1, 0 })
+  -- Open (or reopen) the reply file. Using vim.cmd.edit fires BufReadPost /
+  -- BufNewFile so plugins like barbecue attach correctly.
+  vim.cmd.edit(reply_filename)
+  local buf = v.nvim_get_current_buf()
 
-  setup_attachments(buf)
+  -- Ensure the buffer is listed so it appears in :ls / buffer pickers
+  vim.bo[buf].buflisted = true
+
+  if not draft_exists then
+    -- Fresh reply: populate from notmuch reply output
+    vim.cmd('silent 0read! notmuch reply id:' .. id)
+
+    -- Strip quoted original message when include_original_response = false.
+    -- notmuch reply emits headers, a blank line, then the quoted body starting
+    -- with an "On ... wrote:" line followed by "> " prefixed lines.
+    -- We keep the headers + blank line and drop everything after.
+    if not config.options.include_original_response then
+      local lines = v.nvim_buf_get_lines(buf, 0, -1, false)
+      local keep_until = #lines  -- default: keep all
+      -- Find the first blank line (end of headers) then look for quoted content
+      local past_headers = false
+      for i, line in ipairs(lines) do
+        if not past_headers then
+          if line == '' then past_headers = true end
+        else
+          -- First non-blank line after headers that looks like quoted content
+          -- ("On ... wrote:" intro or "> " quoted line) — truncate here.
+          if line:match('^On ') or line:match('^>') then
+            keep_until = i - 1
+            break
+          end
+        end
+      end
+      -- Trim trailing blank lines at the cut point, then add one blank + cursor hint
+      while keep_until > 1 and lines[keep_until] == '' do
+        keep_until = keep_until - 1
+      end
+      local kept = vim.list_slice(lines, 1, keep_until)
+      table.insert(kept, '')  -- blank line after headers for body
+      v.nvim_buf_set_lines(buf, 0, -1, false, kept)
+      -- Write the trimmed content back to the file so it persists as a draft
+      vim.cmd('silent write')
+    end
+  end
+
+  -- Leave bufhidden at default ("") so the buffer stays in memory and listed
+  -- in :ls / pickers when you switch away. It will be wiped explicitly after
+  -- sending (see sendmail keymap below).
+  -- Place cursor on the first blank line after headers (body start)
+  local lines = v.nvim_buf_get_lines(buf, 0, -1, false)
+  local body_line = 1
+  for i, line in ipairs(lines) do
+    if line == '' then body_line = i + 1; break end
+  end
+  v.nvim_win_set_cursor(0, { math.min(body_line, #lines), 0 })
+
+  setup_attachments(buf, label)
 
   vim.keymap.set('n', config.options.keymaps.sendmail, function()
     if confirm_sendmail() then
@@ -202,6 +289,11 @@ s.reply = function()
       end
 
       s.sendmail(reply_filename)
+      -- Wipe the reply buffer and delete the draft file after a successful send
+      if v.nvim_buf_is_valid(buf) then
+        v.nvim_buf_delete(buf, { force = true })
+      end
+      vim.fn.delete(reply_filename)
     end
   end, { buffer = true })
 end
@@ -221,9 +313,9 @@ s.compose = function(to)
     config.options.keymaps.attachment_window .. '". Send with "' .. config.options.keymaps.sendmail .. '".',
   }
 
-  local buf = v.nvim_create_buf(true, false)
-  v.nvim_win_set_buf(0, buf)
   vim.cmd.edit(compose_filename)
+  local buf = v.nvim_get_current_buf()
+  vim.bo[buf].buflisted = true
 
   v.nvim_buf_set_lines(buf, 0, -1, false, headers)
 
