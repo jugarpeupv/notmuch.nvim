@@ -289,11 +289,6 @@ s.reply = function()
       end
 
       s.sendmail(reply_filename)
-      -- Wipe the reply buffer and delete the draft file after a successful send
-      if v.nvim_buf_is_valid(buf) then
-        v.nvim_buf_delete(buf, { force = true })
-      end
-      vim.fn.delete(reply_filename)
     end
   end, { buffer = true })
 end
