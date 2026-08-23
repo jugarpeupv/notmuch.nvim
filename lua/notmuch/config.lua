@@ -47,6 +47,7 @@ C.defaults = function()
     notmuch_db_path = db_path,
     from = name .. ' <' .. email .. '>',
     from_cmd = nil,
+    draft_dir = vim.fn.stdpath('data') .. '/notmuch/drafts',
     maildir_sync_cmd = 'mbsync -a',
     open_cmd = 'xdg-open',
     logfile = nil,
@@ -99,6 +100,11 @@ C.setup = function(opts)
   -- If `notmuch_db_path` is set by user, expand it in case of tildes, etc.
   if options.notmuch_db_path then
     options.notmuch_db_path = vim.fn.expand(options.notmuch_db_path)
+  end
+
+  -- If `draft_dir` is set by user, expand it in case of tildes, etc.
+  if options.draft_dir then
+    options.draft_dir = vim.fn.expand(options.draft_dir)
   end
 
   C.options = vim.tbl_deep_extend('force', defaults, options)

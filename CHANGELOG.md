@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Persistent drafts: new mail and replies are now written to a `draft_dir`
+  (default: `stdpath('data') .. '/notmuch/drafts'`) instead of per-session
+  temp files, so unfinished drafts survive Neovim restarts. Draft files are
+  deleted automatically after a successful send.
+
 ### Fixed
 
 - Attachment filenames with `/` characters are now sanitized to prevent directory path errors when saving

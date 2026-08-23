@@ -384,6 +384,18 @@ option will be listed with its default value.
   Default value:
     `nil`
 
+*draft_dir*
+  Directory where email drafts (new mail from |C| / `:ComposeMail` and replies
+  from |R|) are stored. Drafts persist across Neovim sessions, so an unfinished
+  draft is not lost when you quit; reopening a reply to the same message
+  resumes the existing draft instead of generating a fresh one. A draft file
+  is deleted automatically after its email has been sent successfully.
+
+  The directory is created on demand if it does not exist.
+
+  Default value:
+    `~/.local/share/nvim/notmuch/drafts` (`stdpath('data') .. '/notmuch/drafts'`)
+
 *maildir_sync_cmd*
   Program to run when synchronizing your local maildir mail to the remote
   (IMAP or otherwise) server. Do not include the `notmuch new` refresh command

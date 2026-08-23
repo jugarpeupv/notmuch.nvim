@@ -6,6 +6,47 @@ local v = vim.api
 
 local config = require('notmuch.config')
 
+--- Returns the persistent drafts directory, creating it if needed.
+---
+--- Falls back to nil when no draft_dir is configured, so callers can fall
+--- back to per-session temp files.
+---
+--- @return string|nil: absolute path to the drafts directory
+local get_draft_dir = function()
+  local dir = config.options.draft_dir
+  if not dir or dir == '' then
+    return nil
+  end
+
+  vim.fn.mkdir(dir, 'p')
+  return dir
+end
+
+--- Builds a timestamped draft file path inside the drafts directory.
+---
+--- Falls back to a per-session temp name when draft_dir is not configured.
+--- Guarantees a non-existent path even when called twice within one second.
+---
+--- @param prefix string: filename prefix, e.g. 'compose' or 'reply'
+--- @return string: absolute path to a new draft file
+local new_draft_path = function(prefix)
+  local dir = get_draft_dir()
+  if not dir then
+    return vim.fn.tempname() .. '-' .. prefix .. '.eml'
+  end
+
+  local stamp = os.date('%Y%m%d-%H%M%S')
+  local path = string.format('%s/%s-%s.eml', dir, prefix, stamp)
+
+  local n = 1
+  while u.file_exists(path) do
+    n = n + 1
+    path = string.format('%s/%s-%s-%d.eml', dir, prefix, stamp, n)
+  end
+
+  return path
+end
+
 -- Prompt confirmation for sending an email
 local confirm_sendmail = function()
   local choice = v.nvim_call_function('confirm', {
@@ -121,7 +162,12 @@ s.sendmail = function(filename)
       local exit_code = vim.v.event.status or -1
 
       if exit_code == 0 then
-        vim.defer_fn(function() vim.notify('Email sent successfully', vim.log.levels.INFO) end, 500)
+        -- Draft was sent successfully; clean up the draft file so unsent
+        -- drafts are the only ones that persist across sessions.
+        pcall(os.remove, filename)
+        vim.defer_fn(function()
+          vim.notify('Email sent successfully', vim.log.levels.INFO)
+        end, 500)
       else
         vim.notify('Failed to send email (exit code: ' .. exit_code .. ')', vim.log.levels.ERROR)
       end
@@ -207,7 +253,11 @@ s.reply = function()
   if #label > 100 then label = label:sub(1, 100) end
   local sanitized_thread = thread_id:gsub('/', '-')
   local sanitized_id = id:gsub('/', '-')
-  local reply_filename = '/tmp/reply-' .. sanitized_thread .. '-' .. sanitized_id .. '.eml'
+
+  -- Draft lives in the persistent drafts dir (falls back to a per-session
+  -- temp name when draft_dir is unset) so it survives across Neovim sessions.
+  local draft_dir = get_draft_dir() or vim.fn.stdpath('data') .. '/notmuch/drafts'
+  local reply_filename = draft_dir .. '/reply-' .. sanitized_thread .. '-' .. sanitized_id .. '.eml'
 
   -- If a draft already exists for this message, reopen it instead of
   -- generating a fresh reply — preserves any edits the user made.
@@ -296,7 +346,7 @@ end
 -- Compose a new email
 s.compose = function(to)
   to = to or ''
-  local compose_filename = vim.fn.tempname() .. '-compose.eml'
+  local compose_filename = new_draft_path('compose')
 
   local from = config.options.from
   if config.options.from_cmd then
