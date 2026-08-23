@@ -46,6 +46,7 @@ C.defaults = function()
   local defaults = {
     notmuch_db_path = db_path,
     from = name .. ' <' .. email .. '>',
+    from_cmd = nil,
     maildir_sync_cmd = 'mbsync -a',
     open_cmd = 'xdg-open',
     logfile = nil,

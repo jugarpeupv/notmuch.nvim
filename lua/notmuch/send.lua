@@ -128,7 +128,7 @@ s.sendmail = function(filename)
     end
   })
 
-  vim.fn.chansend(term_job, msmtp_cmd .. ' ; exit\n')
+  vim.fn.chansend(term_job, msmtp_cmd)
   vim.cmd('startinsert')
 
   return true
@@ -298,8 +298,19 @@ s.compose = function(to)
   to = to or ''
   local compose_filename = vim.fn.tempname() .. '-compose.eml'
 
+  local from = config.options.from
+  if config.options.from_cmd then
+    local out = vim.fn.system(config.options.from_cmd)
+    if vim.v.shell_error == 0 and vim.trim(out) ~= '' then
+      from = vim.trim(out)
+    else
+      vim.notify('notmuch.nvim: from_cmd failed, falling back to default From address',
+        vim.log.levels.WARN)
+    end
+  end
+
   local headers = {
-    'From: ' .. config.options.from,
+    'From: ' .. from,
     'To: ' .. to,
     'Cc: ',
     'Subject: ',

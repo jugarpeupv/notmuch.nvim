@@ -200,6 +200,8 @@ You can configure several global options to tailor the plugin's behavior:
 | Option             | Description                                                                     | Default                         |
 | :----------------- | :-----------------------------------------------------------------------------: | :------------------------------ |
 | `notmuch_db_path`  | Directory containing the `.notmuch/` dir                                        | From `notmuch config`           |
+| `from`             | From header used when composing new mail                                        | From `notmuch config`           |
+| `from_cmd`         | Command whose output overrides `From:` on new mail compose (e.g. `pass show mail/from`) | `nil`                    |
 | `maildir_sync_cmd` | Bash command to run for syncing maildir                                         | `mbsync -a`                     |
 | `sync.sync_mode`   | Sync display mode: `"buffer"`, `"background"`, or `"terminal"` (PTY with stdin) | `buffer`                        |
 | `keymaps`          | Configure any (WIP) command's keymap                                            | See `config.lua`[1]             |

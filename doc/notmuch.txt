@@ -362,6 +362,28 @@ option will be listed with its default value.
   Default value:
     Fetched from `notmuch` config.
 
+*from*
+  Value used for the `From:` header when composing a new mail with |C| or
+  `:ComposeMail`. Replies are not affected; their headers come from the
+  output of `notmuch reply`.
+
+  Default value:
+    Built from `user.name` and `user.primary_email` in your `notmuch` config.
+
+*from_cmd*
+  Shell command whose stdout replaces the `From:` header when composing new
+  mail. The command is run every time a compose buffer is created, so its
+  output may be dynamic (e.g. fetching secrets from a password manager). If
+  the command fails or outputs nothing, the value of |from| is used and a
+  warning is shown. Useful to avoid storing your address in dotfiles: >
+
+    require('notmuch').setup({
+      from_cmd = 'pass show mail/from', -- prints "Name <you@example.com>"
+    })
+<
+  Default value:
+    `nil`
+
 *maildir_sync_cmd*
   Program to run when synchronizing your local maildir mail to the remote
   (IMAP or otherwise) server. Do not include the `notmuch new` refresh command
