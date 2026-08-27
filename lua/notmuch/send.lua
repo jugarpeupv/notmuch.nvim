@@ -6,6 +6,239 @@ local v = vim.api
 
 local config = require('notmuch.config')
 
+--- Returns true if signature_file is an HTML file (.html/.htm).
+local is_html_signature = function()
+  local path = config.options.signature_file
+  if not path or path == '' then
+    return false
+  end
+  return path:lower():match('%.html?$') ~= nil
+end
+
+--- Simple HTML tag stripper for plain fallback (keeps text, drops tags).
+local html_to_text = function(html)
+  local text = html
+  -- Convert block/break tags to newlines before stripping
+  text = text:gsub('<[Bb][Rr][^>]*>', '\n')
+  text = text:gsub('</[Pp]>', '\n'):gsub('<[Pp][^>]*>', '')
+  text = text:gsub('</[Dd][Ii][Vv]>', '\n'):gsub('<[Dd][Ii][Vv][^>]*>', '\n')
+  text = text:gsub('</[Hh][1-6]>', '\n'):gsub('<[Hh][1-6][^>]*>', '\n')
+  text = text:gsub('<[^>]+>', '')
+  text = text:gsub('&nbsp;', ' '):gsub('&amp;', '&'):gsub('&lt;', '<'):gsub('&gt;', '>'):gsub('&quot;', '"')
+  -- Collapse multiple blank lines and trim
+  text = text:gsub('\r', '')
+  text = text:gsub('^%s+', ''):gsub('%s+$', '')
+  text = text:gsub('\n[ \t]+', '\n')
+  text = text:gsub('\n%s*\n', '\n\n')
+  return text
+end
+
+--- Reads HTML signature and rewrites <img src="..."> to cid:..., collecting images.
+--- Follows Outlook pattern: inline images via Content-ID in multipart/related.
+--- @return string|nil html_rewritten, table|nil inline_images [{path,cid}]
+local get_html_signature_data = function()
+  if not is_html_signature() then
+    return nil, nil
+  end
+  local path = vim.fn.expand(config.options.signature_file)
+  if vim.fn.filereadable(path) == 0 then
+    vim.notify('notmuch.nvim: signature_file not readable: ' .. path, vim.log.levels.WARN)
+    return nil, nil
+  end
+  local fh, err = io.open(path, 'r')
+  if not fh then
+    vim.notify('notmuch.nvim: failed to read signature_file: ' .. (err or path), vim.log.levels.WARN)
+    return nil, nil
+  end
+  local raw = fh:read('*a')
+  fh:close()
+  if not raw or raw:match('^%s*$') then
+    return nil, nil
+  end
+
+  local inline_images = {}
+  local cid_counter = 0
+  -- Rewrite src="local/path" -> src="cid:..."
+  local rewritten = raw:gsub('<[Ii][Mm][Gg][^>]*[Ss][Rr][Cc]%s*=%s*["\']([^"\']+)["\']', function(src)
+    -- Skip already cid: or http(s):// or data:
+    if src:match('^cid:') or src:match('^https?://') or src:match('^data:') then
+      return '<img src="' .. src .. '"'
+    end
+    local img_path = vim.fn.expand(src)
+    -- If src is relative, try relative to signature file dir
+    if vim.fn.filereadable(img_path) == 0 then
+      local sig_dir = vim.fn.fnamemodify(path, ':h')
+      local try2 = sig_dir .. '/' .. src
+      if vim.fn.filereadable(try2) == 1 then
+        img_path = try2
+      else
+        vim.notify('notmuch.nvim: signature image not found: ' .. src, vim.log.levels.WARN)
+        return '<img src="' .. src .. '"'
+      end
+    end
+    cid_counter = cid_counter + 1
+    local cid = string.format('sig-img-%d@notmuch.nvim', cid_counter)
+    table.insert(inline_images, { path = img_path, cid = cid })
+    return '<img src="cid:' .. cid .. '"'
+  end)
+
+  -- Also handle single-quoted variant already covered; ensure double handling for src without quotes (rare)
+  return rewritten, inline_images
+end
+
+--- Reads signature file if configured, returns lines to append (with delimiter).
+--- For .html signatures, returns plain-text fallback (stripped tags) for compose buffer.
+--- Handles leading/trailing blank trimming and avoids duplicating "-- " if
+--- the file already starts with it. Warns if file is not readable.
+--- @return string[]|nil: lines to append (e.g. {"", "-- ", "sig line", ...})
+local get_signature_lines = function()
+  local path = config.options.signature_file
+  if not path or path == '' then
+    return nil
+  end
+  -- HTML signature: provide plain text fallback for compose buffer
+  if is_html_signature() then
+    local html, _ = get_html_signature_data()
+    if not html then
+      return nil
+    end
+    local text = html_to_text(html)
+    if text == '' then
+      return nil
+    end
+    local lines = vim.split(text, '\n', { plain = true })
+    -- Trim leading/trailing blanks like plain case
+    local start = 1
+    while start <= #lines and lines[start]:match('^%s*$') do
+      start = start + 1
+    end
+    local finish = #lines
+    while finish >= start and lines[finish]:match('^%s*$') do
+      finish = finish - 1
+    end
+    if start > finish then
+      return nil
+    end
+    local sig = {}
+    for i = start, finish do
+      table.insert(sig, lines[i])
+    end
+    local out = { '', '-- ' }
+    for _, l in ipairs(sig) do
+      table.insert(out, l)
+    end
+    return out
+  end
+
+  path = vim.fn.expand(path)
+  if vim.fn.filereadable(path) == 0 then
+    vim.notify('notmuch.nvim: signature_file not readable: ' .. path, vim.log.levels.WARN)
+    return nil
+  end
+  local ok, lines = pcall(vim.fn.readfile, path)
+  if not ok or not lines then
+    vim.notify('notmuch.nvim: failed to read signature_file: ' .. path, vim.log.levels.WARN)
+    return nil
+  end
+  -- Trim leading/trailing blank lines but preserve internal blanks
+  local start = 1
+  while start <= #lines and lines[start]:match('^%s*$') do
+    start = start + 1
+  end
+  local finish = #lines
+  while finish >= start and lines[finish]:match('^%s*$') do
+    finish = finish - 1
+  end
+  if start > finish then
+    return nil
+  end
+  local sig = {}
+  for i = start, finish do
+    table.insert(sig, lines[i])
+  end
+  local has_delim = sig[1] == '-- ' or sig[1] == '--'
+  local out = { '' }
+  if not has_delim then
+    table.insert(out, '-- ')
+  end
+  for _, l in ipairs(sig) do
+    table.insert(out, l)
+  end
+  return out
+end
+
+--- Escape plain text for HTML and convert newlines to <br>.
+local plain_to_html = function(s)
+  s = s:gsub('&', '&amp;'):gsub('<', '&lt;'):gsub('>', '&gt;'):gsub('"', '&quot;')
+  s = s:gsub('\n', '<br>\n')
+  return s
+end
+
+--- Builds Outlook-style body: multipart/alternative with plain + html(+related images).
+--- Returns mime_table fragment for body (to be inserted into multipart/mixed or top-level).
+local build_html_body_mime = function(plain_lines, html_sig_rewritten, inline_images)
+  -- plain_lines: body lines including plain signature fallback (already in msg)
+  -- html_sig_rewritten: html string with cid: rewritten
+  local body_text = table.concat(plain_lines, '\n')
+  -- Split body_text at signature delimiter for HTML composition (plain search, "-"" is magic in patterns)
+  local delim_pos = body_text:find('\n-- \n', 1, true)
+  local body_only = body_text
+  if delim_pos then
+    body_only = body_text:sub(1, delim_pos - 1)
+  end
+  -- Trim leading newline from body_only (msg starts with "" after headers)
+  body_only = body_only:gsub('^\n', '')
+  local body_html = plain_to_html(body_only)
+  local html_content
+  if html_sig_rewritten then
+    html_content = '<html><body>\n' .. body_html .. '\n<br><br>\n' .. html_sig_rewritten .. '\n</body></html>'
+  else
+    html_content = '<html><body>\n' .. body_html .. '\n</body></html>'
+  end
+
+  local plain_mime = {
+    type = 'text/plain; charset=utf-8',
+    content = table.concat(plain_lines, '\n'),
+    encoding = '8bit',
+    attachment = false,
+  }
+  local html_mime = {
+    type = 'text/html; charset=utf-8',
+    content = html_content,
+    encoding = '8bit',
+    attachment = false,
+  }
+
+  if inline_images and #inline_images > 0 then
+    local related_mimes = { html_mime }
+    for _, img in ipairs(inline_images) do
+      table.insert(related_mimes, {
+        file = img.path,
+        type = m.get_mime_type(img.path),
+        cid = img.cid,
+        attachment = false,
+        encoding = 'base64',
+        filename = vim.fn.fnamemodify(img.path, ':t'),
+      })
+    end
+    return {
+      type = 'multipart/alternative',
+      mime = {
+        plain_mime,
+        {
+          type = 'multipart/related',
+          mime = related_mimes,
+        },
+      },
+    }
+  else
+    return {
+      type = 'multipart/alternative',
+      mime = { plain_mime, html_mime },
+    }
+  end
+end
+
 --- Returns the persistent drafts directory, creating it if needed.
 ---
 --- Falls back to nil when no draft_dir is configured, so callers can fall
@@ -61,7 +294,8 @@ end
 --- Builds plain text msg from contents into single-part MIME message.
 ---
 --- Used when the composed email has no attachments. Sends as a single part
---- (not MIME `multipart/mixed`) of type `text/plain; charset=UTF-8`.
+--- (not MIME `multipart/mixed`) of type `text/plain; charset=UTF-8`, or
+--- Outlook-style `multipart/alternative` (+ `multipart/related` for HTML signature images) when `signature_file` is `.html`.
 ---
 --- @param buf integer: buffer ID of the message compose file
 local build_plain_msg = function(buf)
@@ -70,6 +304,23 @@ local build_plain_msg = function(buf)
   local attributes, msg = m.get_msg_attributes(main_lines)
   v.nvim_buf_set_lines(buf, 0, -1, false, msg)
   vim.cmd('silent! write!')
+
+  if is_html_signature() then
+    local html_sig, inline_images = get_html_signature_data()
+    -- Build Outlook-style alternative body (plain + html + inline images)
+    local body_alt = build_html_body_mime(msg, html_sig, inline_images)
+    local mime_table = {
+      version = 'MIME-Version: 1.0',
+      type = body_alt.type,
+      encoding = '8bit',
+      attributes = attributes,
+      mime = body_alt.mime,
+    }
+    local mime_msg = m.make_mime_msg(mime_table)
+    v.nvim_buf_set_lines(buf, 0, -1, false, mime_msg)
+    vim.cmd('silent! write!')
+    return
+  end
 
   local plain_msg = {}
 
@@ -91,6 +342,7 @@ local build_plain_msg = function(buf)
 end
 
 --- Builds a multipart MIME message from attachment file paths.
+--- When `signature_file` is `.html`, body is Outlook-style `multipart/alternative` (+ `related` for images) as first part of `multipart/mixed`.
 ---
 --- @param buf integer: buffer ID of the message compose file
 --- @param attachment_paths table: list of absolute file path strings
@@ -107,13 +359,22 @@ local build_mime_msg_from_attachments = function(buf, attachment_paths, message_
   v.nvim_buf_set_lines(buf, 0, -1, false, msg)
   vim.cmd('silent! write!')
 
-  local mimes = { {
-    file = message_filename,
-    type = "text/plain; charset=utf-8",
-  } }
-
-  for _, attachment in ipairs(attachments) do
-    table.insert(mimes, attachment)
+  local mimes
+  if is_html_signature() then
+    local html_sig, inline_images = get_html_signature_data()
+    local body_alt = build_html_body_mime(msg, html_sig, inline_images)
+    mimes = { body_alt }
+    for _, attachment in ipairs(attachments) do
+      table.insert(mimes, attachment)
+    end
+  else
+    mimes = { {
+      file = message_filename,
+      type = "text/plain; charset=utf-8",
+    } }
+    for _, attachment in ipairs(attachments) do
+      table.insert(mimes, attachment)
+    end
   end
 
   local mime_table = {
@@ -368,6 +629,14 @@ s.compose = function(to)
     'Message body goes here. Add attachments with "' ..
     config.options.keymaps.attachment_window .. '". Send with "' .. config.options.keymaps.sendmail .. '".',
   }
+
+  -- Append signature if configured (new mails only)
+  local sig_lines = get_signature_lines()
+  if sig_lines then
+    for _, l in ipairs(sig_lines) do
+      table.insert(headers, l)
+    end
+  end
 
   vim.cmd.edit(compose_filename)
   local buf = v.nvim_get_current_buf()

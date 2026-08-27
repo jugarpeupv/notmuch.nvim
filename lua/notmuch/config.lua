@@ -48,6 +48,7 @@ C.defaults = function()
     from = name .. ' <' .. email .. '>',
     from_cmd = nil,
     draft_dir = vim.fn.stdpath('data') .. '/notmuch/drafts',
+    signature_file = nil,
     maildir_sync_cmd = 'mbsync -a',
     open_cmd = 'xdg-open',
     logfile = nil,
@@ -105,6 +106,11 @@ C.setup = function(opts)
   -- If `draft_dir` is set by user, expand it in case of tildes, etc.
   if options.draft_dir then
     options.draft_dir = vim.fn.expand(options.draft_dir)
+  end
+
+  -- If `signature_file` is set by user, expand it in case of tildes, etc.
+  if options.signature_file then
+    options.signature_file = vim.fn.expand(options.signature_file)
   end
 
   C.options = vim.tbl_deep_extend('force', defaults, options)

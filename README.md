@@ -203,6 +203,7 @@ You can configure several global options to tailor the plugin's behavior:
 | `from`             | From header used when composing new mail                                        | From `notmuch config`           |
 | `from_cmd`         | Command whose output overrides `From:` on new mail compose (e.g. `pass show mail/from`) | `nil`                    |
 | `draft_dir`        | Directory where unsent drafts are stored; they survive Neovim restarts and are deleted after a successful send | `~/.local/share/nvim/notmuch/drafts` |
+| `signature_file`   | Path to a file whose contents are appended as signature to new mails. `.txt` → plain text (with `-- ` delimiter); `.html`/`.htm` → HTML signature with Outlook-style `multipart/alternative` + inline images via `cid:` | `nil`                           |
 | `maildir_sync_cmd` | Bash command to run for syncing maildir                                         | `mbsync -a`                     |
 | `sync.sync_mode`   | Sync display mode: `"buffer"`, `"background"`, or `"terminal"` (PTY with stdin) | `buffer`                        |
 | `keymaps`          | Configure any (WIP) command's keymap                                            | See `config.lua`[1]             |

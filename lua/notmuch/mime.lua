@@ -206,8 +206,10 @@ m.make_mime_msg = function(mime_table)
   else
     if mime_table.type then
       table.insert(mime, "Content-Type: " .. mime_table.type)
-    else
+    elseif mime_table.file then
       table.insert(mime, "Content-Type: " .. m.get_mime_type(mime_table.file))
+    else
+      table.insert(mime, "Content-Type: application/octet-stream")
     end
 
     if mime_table.encoding then
@@ -219,34 +221,55 @@ m.make_mime_msg = function(mime_table)
     local filename = ""
     if mime_table.filename then
       filename = mime_table.filename
-    else
-      filename = mime_table.file:match("^.+/(.+)$")
+    elseif mime_table.file then
+      filename = mime_table.file:match("^.+/(.+)$") or ""
+    end
+
+    if mime_table.cid or mime_table.content_id then
+      local cid = mime_table.cid or mime_table.content_id
+      -- Ensure CID is wrapped in <...>
+      if not cid:match('^<.*>$') then
+        cid = '<' .. cid .. '>'
+      end
+      table.insert(mime, 'Content-ID: ' .. cid)
     end
 
     if mime_table.attachment then
       table.insert(mime, [[Content-Disposition: attachment; filename="]] .. filename .. [["]])
     else
-      table.insert(mime, "Content-Disposition: inline")
-    end
-
-    -- Open file (should never fail - validation happens in create_mime_attachments)
-    local file, err = io.open(mime_table.file, "r")
-
-    -- Defensive check: this should never happen if validation worked correctly
-    if not file then
-      error(string.format(
-        "INTERNAL ERROR: Failed to open validated attachment file: %s\nReason: %s\n" ..
-        "This should not happen - please report this bug.",
-        mime_table.file, err or "Unknown error"
-      ))
+      if filename ~= '' and mime_table.type and mime_table.type:match('^image/') then
+        table.insert(mime, [[Content-Disposition: inline; filename="]] .. filename .. [["]])
+      else
+        table.insert(mime, "Content-Disposition: inline")
+      end
     end
 
     table.insert(mime, "")
+
+    -- Content source: either inline `content` string or `file` path
+    local raw_content = nil
+    if mime_table.content ~= nil then
+      raw_content = mime_table.content
+    else
+      -- Open file (should never fail - validation happens in create_mime_attachments)
+      local file, err = io.open(mime_table.file, "r")
+      -- Defensive check: this should never happen if validation worked correctly
+      if not file then
+        error(string.format(
+          "INTERNAL ERROR: Failed to open validated attachment file: %s\nReason: %s\n" ..
+          "This should not happen - please report this bug.",
+          mime_table.file, err or "Unknown error"
+        ))
+      end
+      raw_content = file:read("*a")
+      file:close()
+    end
+
     local content = {}
     local base64 = require("notmuch.base64")
 
     if mime_table.encoding == "base64" then
-      content = base64.encode(file:read("*a"))
+      content = base64.encode(raw_content)
 
       -- RFC 2045 defines that the maximum line length for encoded base64 is 76 chars
       local split = u.split_length(content, 76)
@@ -254,12 +277,29 @@ m.make_mime_msg = function(mime_table)
         table.insert(mime, value)
       end
     else
-      for line in file:lines() do
+      -- file:lines() semantics: split on \n, keep empty lines, no extra trailing empty
+      local lines = {}
+      if vim and vim.split then
+        lines = vim.split(raw_content, "\n", { plain = true })
+        -- vim.split keeps trailing empty; mimic file:lines() which drops final empty if string ends with \n
+        if raw_content:sub(-1) == "\n" and lines[#lines] == "" then
+          table.remove(lines)
+        end
+      else
+        for line in (raw_content .. "\n"):gmatch("([^\n]*)\n") do
+          table.insert(lines, line)
+        end
+        if raw_content:sub(-1) ~= "\n" and lines[#lines] == "" then
+          table.remove(lines)
+        elseif raw_content:sub(-1) == "\n" and lines[#lines] == "" then
+          table.remove(lines)
+        end
+      end
+      for _, line in ipairs(lines) do
         table.insert(mime, line)
       end
     end
 
-    file:close()  -- Close file handle
     table.insert(mime, "")
 
   end

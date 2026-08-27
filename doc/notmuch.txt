@@ -396,6 +396,48 @@ option will be listed with its default value.
   Default value:
     `~/.local/share/nvim/notmuch/drafts` (`stdpath('data') .. '/notmuch/drafts'`)
 
+*signature_file*
+  Path to a file whose contents are appended as signature to newly composed
+  mails (|C| / `:ComposeMail`). The file is read when the compose buffer is
+  created and inserted after the body placeholder, preceded by the standard
+  signature delimiter `-- ` (RFC 3676). If the file already starts with `-- `
+  the delimiter is not duplicated. Leading/trailing blank lines in the file
+  are trimmed. If the file does not exist or is not readable, a warning is
+  shown and composition continues without a signature. Replies (|R|) are not
+  affected.
+
+  Plain text vs HTML:
+  - If `signature_file` ends with `.txt` (or any non-`.html`), it is treated
+    as plain text and appended verbatim to the `text/plain` body. Sending
+    remains single-part `text/plain` (or `multipart/mixed` with attachments).
+  - If it ends with `.html` or `.htm`, it is treated as HTML signature
+    following Outlook's model: the mail is sent as `multipart/alternative`
+    (`text/plain` + `text/html`), and any `<img src="...">` with a local file
+    path is inlined via `multipart/related` with `Content-ID: <...>` and
+    `src="cid:..."` (e.g. `<img src="/tmp/logo.png">` → `cid:sig-img-1@notmuch.nvim`).
+    `http(s)://`, `cid:` and `data:` sources are left untouched. The compose
+    buffer shows a plain-text fallback (HTML tags stripped) for editing, while
+    the MIME correctly contains the HTML + inline images for Outlook/Gmail.
+    Multiple images are supported; relative `src` is resolved against the
+    signature file's directory.
+
+  Example plain: >
+    require('notmuch').setup({
+      signature_file = "~/.config/aerc/signatures/izertis-signature.txt"
+    })
+<
+  Example HTML with image (Outlook-style): >
+    -- ~/.config/aerc/signatures/izertis-signature.html
+    <div>Gracias<br>Julio García<br>
+    <img src="/home/jgp/Pictures/izertis-logo.png" alt="Izertis"></div>
+<
+    require('notmuch').setup({
+      signature_file = "~/.config/aerc/signatures/izertis-signature.html"
+    })
+<
+  Default value:
+    `nil` (no signature)
+
 *maildir_sync_cmd*
   Program to run when synchronizing your local maildir mail to the remote
   (IMAP or otherwise) server. Do not include the `notmuch new` refresh command
