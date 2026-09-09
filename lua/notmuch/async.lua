@@ -54,9 +54,35 @@ a.run_notmuch_search = function(search, buf, on_complete)
         return
       end
 
+      -- Store thread IDs and hide 'thread:' prefix (never visible, even on
+      -- cursor line - fixes concealcursor=n showing it). Remove prefix entirely
+      -- so date starts at column 0 (no indent) and keep syntax working.
+      local display_lines = {}
+      local ok, ids = pcall(vim.api.nvim_buf_get_var, buf, "notmuch_thread_ids")
+      if not ok or type(ids) ~= "table" then
+        ids = {}
+        pcall(vim.api.nvim_buf_set_var, buf, "notmuch_thread_ids", ids)
+      end
+      for _, line in ipairs(lines) do
+        local tid = line:match("^thread:([0-9a-fA-F]+)")
+        if tid then
+          table.insert(ids, tid)
+          -- Remove 'thread:<id>' and following spaces (no indent, date at col 0)
+          local prefix = line:match("^thread:[0-9a-fA-F]+%s*")
+          if prefix then
+            line = line:sub(#prefix + 1)
+          else
+            line = line:gsub("^thread:[0-9a-fA-F]+", "")
+          end
+        end
+        table.insert(display_lines, line)
+      end
+      -- Ensure buffer var is updated (table is reference, but set again for safety)
+      pcall(vim.api.nvim_buf_set_var, buf, "notmuch_thread_ids", ids)
+
       -- Paste lines into the tail of `buf`
       vim.bo[buf].modifiable = true
-      vim.api.nvim_buf_set_lines(buf, -1, -1, false, lines)
+      vim.api.nvim_buf_set_lines(buf, -1, -1, false, display_lines)
       vim.bo[buf].modifiable = false
     end
   end))

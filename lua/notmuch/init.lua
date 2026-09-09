@@ -60,6 +60,26 @@ nm.setup = function(opts)
     nargs = "*",
     complete = require("notmuch.completion").comp_address
   })
+
+  -- Ensure thread IDs stay concealed in threads buffer (window-local)
+  -- vsplit/split creates a new window where FileType is not re-triggered, so
+  -- use BufWinEnter to re-apply for every window showing notmuch-threads.
+  -- Also handle CursorMoved to keep it hidden even when cursor is on the
+  -- line (concealcursor="" should already hide, but some configs/plugins
+  -- may reset it, so re-apply aggressively).
+  vim.api.nvim_create_autocmd({ "BufWinEnter", "WinEnter", "CursorMoved", "CursorMovedI", "BufEnter", "FileType", "Syntax" }, {
+    group = vim.api.nvim_create_augroup("NotmuchThreadsConceal", { clear = true }),
+    callback = function(args)
+      local ft = vim.bo[args.buf].filetype
+      if ft == "notmuch-threads" or (args.event == "FileType" and args.match == "notmuch-threads") then
+        vim.wo.conceallevel = 3
+        vim.wo.concealcursor = ""
+        -- Also ensure global window options for new windows inherit correctly
+        vim.api.nvim_set_option_value("conceallevel", 3, { scope = "local", win = 0 })
+        vim.api.nvim_set_option_value("concealcursor", "", { scope = "local", win = 0 })
+      end
+    end,
+  })
 end
 
 -- Launch `notmuch.nvim` landing page
@@ -128,7 +148,7 @@ nm.search_terms = function(search, jumptothreadid)
   v.nvim_win_set_buf(0, buf)
 
   local hint_text =
-  "Hints: <Enter>: Open thread | q: Close | r: Refresh | %: Sync maildir | a: Archive | A: Archive and Read | +/-/=: Add, remove, toggle tag | o: Sort | dd: Delete"
+  "Hints: <Enter>: Open thread | <C-v>: Vsplit | <C-s>: Split | q: Close | r: Refresh | %: Sync maildir | a: Archive | A: Archive and Read | +/-/=: Add, remove, toggle tag | o: Sort | dd: Delete"
   v.nvim_buf_set_lines(buf, 0, 2, false, { hint_text, "" })
 
   -- Async notmuch search to make the UX non blocking
@@ -149,13 +169,29 @@ nm.search_terms = function(search, jumptothreadid)
     -- Completion logic
     if line_count > 1 then num_threads_found = line_count - 1 end
     print('Found ' .. num_threads_found .. ' threads')
-    vim.fn.search(jumptothreadid)
+    if jumptothreadid and jumptothreadid ~= "" then
+      local clean_id = jumptothreadid:match("([0-9a-fA-F]+)") or jumptothreadid
+      local ok, ids = pcall(vim.api.nvim_buf_get_var, buf, "notmuch_thread_ids")
+      if ok and type(ids) == "table" then
+        for idx, tid in ipairs(ids) do
+          if tid == clean_id then
+            -- Buffer line = idx + 2 (Hints + blank)
+            pcall(vim.api.nvim_win_set_cursor, 0, { idx + 2, 0 })
+            break
+          end
+        end
+      else
+        vim.fn.search(clean_id)
+      end
+    end
   end)
 
   -- Set cursor at head of buffer, declare filetype, and disable modifying
   v.nvim_win_set_cursor(0, { 1, 0 })
   vim.bo.filetype = "notmuch-threads"
   vim.bo.modifiable = false
+  vim.wo.conceallevel = 3
+  vim.wo.concealcursor = ""
 end
 
 --- Reverses the threads sorting in `notmuch-threads` buffer
@@ -180,6 +216,17 @@ nm.reverse_sort_threads = function()
   -- Re-attach hints line
   table.insert(reversed, 1, hints)
 
+  -- Also reverse stored thread IDs to keep mapping consistent
+  local buf = vim.api.nvim_get_current_buf()
+  local ok, ids = pcall(vim.api.nvim_buf_get_var, buf, "notmuch_thread_ids")
+  if ok and type(ids) == "table" then
+    local rev_ids = {}
+    for i = #ids, 1, -1 do
+      table.insert(rev_ids, ids[i])
+    end
+    pcall(vim.api.nvim_buf_set_var, buf, "notmuch_thread_ids", rev_ids)
+  end
+
   -- Replace lines in buffer
   vim.bo.modifiable = true
   v.nvim_buf_set_lines(0, 0, -1, false, reversed)
@@ -198,6 +245,20 @@ end
 -- @usage
 -- nm.show_thread("thread:00000000000003aa")
 -- nm.show_thread(vim.api.nvim_get_current_line())
+-- Helper to get thread ID for a given buffer line (1-indexed), using stored IDs
+-- when available (new display without 'thread:' prefix) with fallback to parsing.
+local function get_thread_id_at_lnum(buf, lnum)
+  if lnum <= 2 then return nil end -- Hints + blank
+  local ok, ids = pcall(vim.api.nvim_buf_get_var, buf, "notmuch_thread_ids")
+  if ok and type(ids) == "table" and ids[lnum - 2] then
+    return ids[lnum - 2]
+  end
+  local line = vim.fn.getline(lnum)
+  if line:find("Hints:") == 1 then return nil end
+  -- Fallback for old buffers or direct 'thread:ID' strings
+  return string.match(line, "[0-9a-fA-F]+", 7) or string.match(line, "%S+", 8)
+end
+
 nm.show_thread = function(s)
   -- Fetch the threadid from the input `s` or from current line
   local threadid = ''
@@ -209,9 +270,21 @@ nm.show_thread = function(s)
       print("Cannot open Hints :-)")
       return nil
     end
-    threadid = string.match(line, "[0-9a-z]+", 7)
+    local lnum = v.nvim_win_get_cursor(0)[1]
+    threadid = get_thread_id_at_lnum(vim.api.nvim_get_current_buf(), lnum) or string.match(line, "[0-9a-z]+", 7) or ""
   else
-    threadid = string.match(s, "[0-9a-z]+", 7)
+    -- s may be 'thread:ID', a full line, or just ID
+    threadid = string.match(s, "([0-9a-fA-F]+)", 7) or string.match(s, "[0-9a-fA-F]+") or ""
+    -- If s is a display line without thread: prefix, fallback to stored IDs
+    if threadid == "" or not s:find("thread:") then
+      local lnum = v.nvim_win_get_cursor(0)[1]
+      local stored = get_thread_id_at_lnum(vim.api.nvim_get_current_buf(), lnum)
+      if stored then threadid = stored end
+    end
+  end
+  if threadid == "" or threadid == nil then
+    vim.notify("show_thread: could not parse thread ID", vim.log.levels.WARN)
+    return nil
   end
 
   -- Open buffer if already exists and has content, otherwise create new `buf`
@@ -261,6 +334,8 @@ nm.show_thread = function(s)
   v.nvim_win_set_cursor(0, { 1, 0})
   vim.bo.filetype="mail"
   vim.bo.modifiable = false
+  vim.wo.conceallevel = 0
+  vim.wo.concealcursor = ""
 
   -- Set up cursor tracking for updating vim.b.notmuch_current
   require('notmuch.thread').setup_cursor_tracking(buf)
@@ -321,6 +396,61 @@ nm.show_thread = function(s)
       require('notmuch.images').open_cid(entry)
     end, { buffer = buf, desc = 'Open CID inline image with system handler' })
   end
+end
+
+--- Helper to ensure conceallevel for notmuch-threads windows
+local function ensure_threads_conceal()
+  for _, win in ipairs(v.nvim_list_wins()) do
+    local buf = v.nvim_win_get_buf(win)
+    if vim.bo[buf].filetype == 'notmuch-threads' then
+      vim.api.nvim_win_call(win, function()
+        vim.wo.conceallevel = 3
+        vim.wo.concealcursor = ''
+      end)
+    end
+  end
+end
+
+--- Open thread in vertical split (for <C-v> in threads buffer)
+nm.show_thread_vsplit = function(s)
+  local tid
+  if s and s:find("thread:") then
+    tid = s:match("thread:([0-9a-fA-F]+)")
+  else
+    local lnum = vim.api.nvim_win_get_cursor(0)[1]
+    tid = get_thread_id_at_lnum(vim.api.nvim_get_current_buf(), lnum)
+    if not tid and s then tid = s:match("([0-9a-fA-F]+)") end
+    if not tid then
+      local line = s or v.nvim_get_current_line()
+      if line:find("Hints:") == 1 then print("Cannot open Hints :-)") return nil end
+      tid = line:match("[0-9a-fA-F]+", 7)
+    end
+  end
+  if not tid or tid == "" then vim.notify("show_thread: could not parse thread ID", vim.log.levels.WARN) return nil end
+  vim.cmd('vsplit')
+  ensure_threads_conceal()
+  return nm.show_thread("thread:" .. tid)
+end
+
+--- Open thread in horizontal split (for <C-s> in threads buffer)
+nm.show_thread_split = function(s)
+  local tid
+  if s and s:find("thread:") then
+    tid = s:match("thread:([0-9a-fA-F]+)")
+  else
+    local lnum = vim.api.nvim_win_get_cursor(0)[1]
+    tid = get_thread_id_at_lnum(vim.api.nvim_get_current_buf(), lnum)
+    if not tid and s then tid = s:match("([0-9a-fA-F]+)") end
+    if not tid then
+      local line = s or v.nvim_get_current_line()
+      if line:find("Hints:") == 1 then print("Cannot open Hints :-)") return nil end
+      tid = line:match("[0-9a-fA-F]+", 7)
+    end
+  end
+  if not tid or tid == "" then vim.notify("show_thread: could not parse thread ID", vim.log.levels.WARN) return nil end
+  vim.cmd('split')
+  ensure_threads_conceal()
+  return nm.show_thread("thread:" .. tid)
 end
 
 -- Counts the number of threads matching the search terms

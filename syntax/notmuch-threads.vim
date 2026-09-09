@@ -1,5 +1,5 @@
 setlocal conceallevel=3
-setlocal concealcursor=n
+setlocal concealcursor=
 
 " ----------------------------------------------------------
 " nmHints:
@@ -33,6 +33,19 @@ syntax match nmThreadCount	"\s\+\[[0-9]\+\/[0-9()]\+\]"				contained nextgroup=n
 syntax match nmFrom		"\s\+.*;"						contained nextgroup=nmSubject
 syntax match nmSubject		/.\{0,}\(([^()]\+)$\)\@=/				contained nextgroup=nmTags
 syntax match nmTags		"(.*)$"							contained
+
+" New display without thread: prefix (spaces) - robust fix for conceallevel
+" Matches lines starting with spaces (thread: replaced with spaces) and highlights same as above
+syntax match nmDatePlain		"^\s*\zs[0-9A-Za-z.\-]\+\(\s[a-z0-9:.]\+\)\?\(\sago\)\?" nextgroup=nmThreadCountPlain
+syntax match nmThreadCountPlain	"\s\+\[[0-9]\+\/[0-9()]\+\]"				contained nextgroup=nmFromPlain
+syntax match nmFromPlain		"\s\+.*;"						contained nextgroup=nmSubjectPlain
+syntax match nmSubjectPlain		".\{0,}\(([^()]\+)$\)\@="				contained nextgroup=nmTagsPlain
+syntax match nmTagsPlain		"(.*)$"							contained
+highlight link nmDatePlain String
+highlight link nmThreadCountPlain Comment
+highlight link nmFromPlain nmFrom
+highlight link nmSubjectPlain Statement
+highlight link nmTagsPlain Comment
 
 highlight link nmThreadNum	Type
 highlight link nmThreadEllipsis	Normal

@@ -1,4 +1,6 @@
 setlocal nowrap
+setlocal conceallevel=3
+setlocal concealcursor=
 
 let nm = v:lua.require('notmuch')
 let r = v:lua.require('notmuch.refresh')
@@ -11,6 +13,9 @@ command -buffer -range -complete=customlist,v:lua.require'notmuch.completion'.co
 command -buffer -range DelThread :call tag.thread_add_tag("del", <line1>, <line2>) | :call tag.thread_rm_tag("inbox", <line1>, <line2>)
 
 nnoremap <buffer> <CR> <Cmd>call nm.show_thread()<CR>
+nnoremap <buffer> <C-v> <Cmd>lua require('notmuch').show_thread_vsplit()<CR>
+nnoremap <buffer> <C-s> <Cmd>lua require('notmuch').show_thread_split()<CR>
+nnoremap <buffer> <C-x> <Cmd>lua require('notmuch').show_thread_split()<CR>
 nnoremap <buffer> r <Cmd>call r.refresh_search_buffer()<CR>
 nnoremap <buffer> q <Cmd>bwipeout<CR>
 nnoremap <buffer> % <Cmd>call s.sync_maildir()<CR>

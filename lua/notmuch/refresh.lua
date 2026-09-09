@@ -12,12 +12,21 @@ local nm = require('notmuch')
 -- -- Normally invoked by pressing `r` in the search results buffer
 -- lua require('notmuch.refresh').refresh_search_buffer()
 r.refresh_search_buffer = function()
-  local line = v.nvim_get_current_line()
-  local threadid = string.match(line, "%S+", 8)
+  local buf = v.nvim_get_current_buf()
+  local lnum = v.nvim_win_get_cursor(0)[1]
+  local threadid
+  local ids = vim.b[buf] and vim.b[buf].notmuch_thread_ids
+  if ids and lnum > 2 and ids[lnum - 2] then
+    threadid = ids[lnum - 2]
+  else
+    local line = v.nvim_get_current_line()
+    threadid = string.match(line, "%S+", 8) or string.match(line, "[0-9a-fA-F]+", 7)
+  end
   local search = string.match(v.nvim_buf_get_name(0), '%a+:%C+')
   v.nvim_command('bwipeout')
   nm.search_terms(search, threadid)
-  vim.fn.search(threadid)
+  -- Jump is now handled via stored IDs in search_terms on_complete
+  if threadid then vim.fn.search(threadid) end
 end
 
 -- Refreshes the thread view buffer
