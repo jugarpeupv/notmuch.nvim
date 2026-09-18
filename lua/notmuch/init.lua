@@ -145,6 +145,10 @@ nm.search_terms = function(search, jumptothreadid)
   end
   local buf = v.nvim_create_buf(true, true)
   v.nvim_buf_set_name(buf, search)
+  -- Prevent :e from wiping the scratch buffer (not a real file)
+  vim.bo[buf].buftype = "nofile"
+  vim.bo[buf].bufhidden = "hide"
+  vim.bo[buf].swapfile = false
   v.nvim_win_set_buf(0, buf)
 
   local hint_text =
@@ -303,6 +307,9 @@ nm.show_thread = function(s)
   end
   local buf = v.nvim_create_buf(true, true)
   v.nvim_buf_set_name(buf, "thread:" .. threadid)
+  vim.bo[buf].buftype = "nofile"
+  vim.bo[buf].bufhidden = "hide"
+  vim.bo[buf].swapfile = false
   v.nvim_win_set_buf(0, buf)
 
   -- Get output (JSON parsed) and display lines in buffer
@@ -503,6 +510,9 @@ nm.show_all_tags = function()
   -- Create dedicated buffer. Content is fetched using `db.get_all_tags()`
   local buf = v.nvim_create_buf(true, true)
   v.nvim_buf_set_name(buf, "Tags")
+  vim.bo[buf].buftype = "nofile"
+  vim.bo[buf].bufhidden = "hide"
+  vim.bo[buf].swapfile = false
   v.nvim_win_set_buf(0, buf)
   v.nvim_buf_set_lines(buf, 0, 0, true, tags)
 

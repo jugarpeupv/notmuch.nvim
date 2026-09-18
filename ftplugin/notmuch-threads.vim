@@ -1,6 +1,32 @@
 setlocal nowrap
 setlocal conceallevel=3
 setlocal concealcursor=
+" Make :e behave like r (refresh) in this scratch buffer (not a real file)
+" Save state before :e clears the buffer, restore it in BufReadCmd so there
+" is no empty flash, then schedule a real refresh (deferred to avoid
+" re-entrancy: refresh does bwipeout + re-search).
+autocmd BufReadPre <buffer> if line('$') > 1 || getline(1) != '' | let b:notmuch_saved_lines = getline(1, '$') | let b:notmuch_saved_ids = get(b:, 'notmuch_thread_ids', []) | let b:notmuch_saved_lnum = line('.') | endif
+autocmd BufReadCmd <buffer> call s:NotmuchEditRefresh()
+function! s:NotmuchEditRefresh() abort
+  " :e with a file argument: allow the normal edit, drop our guard
+  if expand('<afile>') !=# bufname('%')
+    autocmd! * <buffer>
+    execute 'edit' fnameescape(expand('<afile>'))
+    return
+  endif
+  setlocal modifiable
+  if exists('b:notmuch_saved_lines')
+    call setline(1, b:notmuch_saved_lines)
+    if line('$') > len(b:notmuch_saved_lines)
+      execute (len(b:notmuch_saved_lines)+1) . ',$delete _'
+    endif
+    if exists('b:notmuch_saved_ids') | let b:notmuch_thread_ids = b:notmuch_saved_ids | endif
+    if exists('b:notmuch_saved_lnum') | call cursor(b:notmuch_saved_lnum, 1) | endif
+  endif
+  setlocal nomodifiable
+  set nomodified
+  lua vim.schedule(function() require('notmuch.refresh').refresh_search_buffer() end)
+endfunction
 
 let nm = v:lua.require('notmuch')
 let r = v:lua.require('notmuch.refresh')

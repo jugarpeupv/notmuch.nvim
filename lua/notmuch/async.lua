@@ -79,6 +79,8 @@ a.run_notmuch_search = function(search, buf, on_complete)
       end
       -- Ensure buffer var is updated (table is reference, but set again for safety)
       pcall(vim.api.nvim_buf_set_var, buf, "notmuch_thread_ids", ids)
+      -- Save display lines for :e prevention (BufReadCmd will restore)
+      pcall(vim.api.nvim_buf_set_var, buf, "notmuch_saved_lines", display_lines)
 
       -- Paste lines into the tail of `buf`
       vim.bo[buf].modifiable = true
