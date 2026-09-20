@@ -36,7 +36,8 @@ syntax match nmTags		"(.*)$"							contained
 
 " New display without thread: prefix (spaces) - robust fix for conceallevel
 " Matches lines starting with spaces (thread: replaced with spaces) and highlights same as above
-syntax match nmDatePlain		"^\s*\zs[0-9A-Za-z.\-]\+\(\s[a-z0-9:.]\+\)\?\(\sago\)\?" nextgroup=nmThreadCountPlain
+" Exclude 'thread:' and 'Hints:' so the nmThreads and nmHints regions win for those lines
+syntax match nmDatePlain		"^\s*\zs\%(thread:\|Hints:\)\@![0-9A-Za-z.\-]\+\(\s[a-z0-9:.]\+\)\?\(\sago\)\?" nextgroup=nmThreadCountPlain
 syntax match nmThreadCountPlain	"\s\+\[[0-9]\+\/[0-9()]\+\]"				contained nextgroup=nmFromPlain
 syntax match nmFromPlain		"\s\+.*;"						contained nextgroup=nmSubjectPlain
 syntax match nmSubjectPlain		".\{0,}\(([^()]\+)$\)\@="				contained nextgroup=nmTagsPlain
