@@ -182,6 +182,12 @@ local build_html_body_mime = function(plain_lines, html_sig_rewritten, inline_im
   local body_text = table.concat(plain_lines, '\n')
   -- Split body_text at signature delimiter for HTML composition (plain search, "-"" is magic in patterns)
   local delim_pos = body_text:find('\n-- \n', 1, true)
+  -- If user removed signature delimiter from compose buffer, don't inject
+  -- HTML signature (or its inline images) into the outgoing MIME.
+  if not delim_pos then
+    html_sig_rewritten = nil
+    inline_images = nil
+  end
   local body_only = body_text
   if delim_pos then
     body_only = body_text:sub(1, delim_pos - 1)
