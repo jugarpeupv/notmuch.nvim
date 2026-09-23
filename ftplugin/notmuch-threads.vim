@@ -1,6 +1,7 @@
 setlocal nowrap
 setlocal conceallevel=3
 setlocal concealcursor=
+setlocal signcolumn=no
 " Make :e behave like r (refresh) in this scratch buffer (not a real file)
 " Save state before :e clears the buffer, restore it in BufReadCmd so there
 " is no empty flash, then schedule a real refresh (deferred to avoid

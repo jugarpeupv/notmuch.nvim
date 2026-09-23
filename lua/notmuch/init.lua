@@ -74,9 +74,11 @@ nm.setup = function(opts)
       if ft == "notmuch-threads" or (args.event == "FileType" and args.match == "notmuch-threads") then
         vim.wo.conceallevel = 3
         vim.wo.concealcursor = ""
+        vim.wo.signcolumn = "no"
         -- Also ensure global window options for new windows inherit correctly
         vim.api.nvim_set_option_value("conceallevel", 3, { scope = "local", win = 0 })
         vim.api.nvim_set_option_value("concealcursor", "", { scope = "local", win = 0 })
+        vim.api.nvim_set_option_value("signcolumn", "no", { scope = "local", win = 0 })
       end
     end,
   })
@@ -196,6 +198,7 @@ nm.search_terms = function(search, jumptothreadid)
   vim.bo.modifiable = false
   vim.wo.conceallevel = 3
   vim.wo.concealcursor = ""
+  vim.wo.signcolumn = "no"
 end
 
 --- Reverses the threads sorting in `notmuch-threads` buffer
@@ -207,17 +210,23 @@ end
 -- We do this instantly instead of running `notmuch search --sort` to save time
 -- especially when it comes to large results with thousands of thread.
 nm.reverse_sort_threads = function()
-  -- Get all lines, disregarding top-level hints line
+  -- Get all lines, keeping the hints + blank header fixed so line numbers
+  -- stay aligned with the stored thread IDs (ids[i] <-> line i + 2).
   local lines = v.nvim_buf_get_lines(0, 0, -1, false)
   local hints = table.remove(lines, 1)
+  local blank = ""
+  if lines[1] == "" then
+    blank = table.remove(lines, 1)
+  end
 
-  -- Reverse lines
+  -- Reverse thread lines only
   local reversed = {}
   for i = #lines, 1, -1 do
     table.insert(reversed, lines[i])
   end
 
-  -- Re-attach hints line
+  -- Re-attach hints + blank header
+  table.insert(reversed, 1, blank)
   table.insert(reversed, 1, hints)
 
   -- Also reverse stored thread IDs to keep mapping consistent

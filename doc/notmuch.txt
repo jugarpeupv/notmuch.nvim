@@ -610,7 +610,15 @@ related to buffers:
   - *Tags Buffer*:
     Displays a list of all tags in the database.
   - *Threads Buffer*:
-    Lists threads matching a search query.
+    Lists threads matching a search query, one per line, in aligned
+    columns built from `notmuch search --format=json`:
+      ICON DD/MM/YY HH:MM  Subject (30)  From (10)  (tags)  [matched/total]
+    The date renders in your local timezone. Subject and From are
+    truncated/padded to a fixed width (counted in display cells, so emoji
+    or CJK text never shifts the columns). The leading icon is a Nerd
+    Font envelope: closed for threads tagged `unread`, opened otherwise
+    (see |notmuch-syntax-highlight| for its colors). The sign column is
+    hidden in this buffer.
   - *Thread View Buffer*:
     Provides a detailed view of a thread, displaying messages in an indented 
     and folded format.
@@ -776,6 +784,11 @@ chosen highlighting rules.
     linking its custom highlight groups to standard groups.
   - Advanced users can redefine these groups for a more personalized visual
     experience.
+  - The threads buffer shows a Nerd Font status icon before the date: a
+    closed envelope for threads tagged `unread`, an opened one otherwise.
+    Their colors come from `NotmuchUnreadMail` (bold yellow by default) and
+    `NotmuchReadMail` (grey by default); override them after colorscheme
+    setup, e.g. `vim.api.nvim_set_hl(0, "NotmuchUnreadMail", { fg = "#ff0000", bold = true })`.
 
 ==============================================================================
 LUA STRUCTURE                                               *notmuch-structure*

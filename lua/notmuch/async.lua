@@ -15,15 +15,90 @@ local a = {}
 -- require('notmuch.async').run_notmuch_search('tag:inbox', 0, function()
 --   print('Notmuch search process completed.')
 -- end)
+--- Fits a string into exactly `width` display cells (utf-safe).
+--- Embedded newlines (e.g. from folded RFC2822 headers in `subject`/`authors`)
+--- are flattened first: `nvim_buf_set_lines` rejects items containing `\n`.
+--- Truncation and padding both count display cells (not characters), so wide
+--- chars such as emoji or CJK never shift the columns that follow.
+local function fit(s, width)
+  s = (s or ""):gsub("[\r\n]+", " ")
+  local out, cells = {}, 0
+  local n = vim.fn.strchars(s)
+  for i = 0, n - 1 do
+    local ch = vim.fn.strcharpart(s, i, 1)
+    local w = vim.fn.strdisplaywidth(ch)
+    if cells + w > width then
+      break
+    end
+    table.insert(out, ch)
+    cells = cells + w
+  end
+  if cells < width then
+    table.insert(out, string.rep(" ", width - cells))
+  end
+  return table.concat(out)
+end
+
+--- Nerd Font icons prefixed to thread lines (explicit codepoints, so the file
+--- stays readable without a Nerd Font in the editor). Unread threads show a
+--- closed envelope (U+F01EE `nf-md-email`), read threads an opened one
+--- (U+F01EF `nf-md-email_open`). Swap the codepoints here to use other glyphs.
+local ICON_UNREAD = vim.fn.nr2char(0xF01EE) -- nf-md-email: closed envelope (unread)
+local ICON_READ = vim.fn.nr2char(0xF01EF) -- nf-md-email_open: opened envelope (read)
+
+--- Formats a single thread object from `notmuch search --format=json` into an
+--- aligned display line:
+---   ICON DD/MM/YY HH:MM(14)  Subject(30)  From(10)  (tags)  [matched/total]
+--- The date uses `os.date`, which renders in the user's local timezone.
+--- The icon reflects the `unread` tag; its color comes from the
+--- `NotmuchUnreadMail` / `NotmuchReadMail` highlight groups (see syntax file).
+local function format_thread(t)
+  local tag_list = t.tags or {}
+  local unread = false
+  for _, tag in ipairs(tag_list) do
+    if tag == "unread" then
+      unread = true
+      break
+    end
+  end
+  local icon = unread and ICON_UNREAD or ICON_READ
+  local date = os.date("%d/%m/%y %H:%M", t.timestamp or os.time())
+  local subject = fit(t.subject or "", 30)
+  -- `authors` may be "Alice, Bob" or "Name <mail>"; keep first human name only.
+  local authors = t.authors or ""
+  local from = authors:match("^[^,|;]+") or authors
+  from = vim.trim(from)
+  local name = from:match("^(.-)%s*<")
+  if name and vim.trim(name) ~= "" then
+    from = vim.trim(name)
+  end
+  -- A bare "<mail@host>" (no display name) falls back to the mailbox part.
+  if from:match("^<.*>$") then
+    from = from:gsub("[<>]", ""):match("^[^@]+") or from
+  end
+  from = fit(from, 10)
+  local tags = "(" .. table.concat(t.tags or {}, " ") .. ")"
+  local count = string.format("[%d/%d]", t.matched or 0, t.total or 0)
+  local line = string.format("%s %s  %s  %s  %s  %s", icon, date, subject, from, tags, count)
+  -- Belt and braces: a display line must never contain a newline.
+  -- Parentheses truncate gsub's second return (substitution count) so callers
+  -- like table.insert(line) don't see a spurious third argument.
+  return (line:gsub("[\r\n]", " "))
+end
+
 a.run_notmuch_search = function(search, buf, on_complete)
   -- Set up pipes for stdout and stderr to capture command output
   local stdout = vim.loop.new_pipe(false)
   local stderr = vim.loop.new_pipe(false)
 
+  -- Accumulate raw stdout; `--format=json` yields a single JSON document that
+  -- is parsed once the process exits (keeps UX non-blocking via the loop).
+  local chunks = {}
+
   -- Spawn subprocess using vim.loop (deprecated?)
   local handle
   handle = vim.loop.spawn("notmuch", {
-    args = {"search", search},
+    args = {"search", "--format=json", search},
     stdio = {nil, stdout, stderr}
   }, vim.schedule_wrap(function()
     -- Close the pipes and handle
@@ -31,63 +106,44 @@ a.run_notmuch_search = function(search, buf, on_complete)
     stderr:close()
     handle:close()
 
+    -- Check if buffer is still valid before writing
+    -- This prevents errors when buffer is deleted (e.g., during refresh)
+    if vim.api.nvim_buf_is_valid(buf) then
+      local ok_json, threads = pcall(vim.json.decode, table.concat(chunks))
+      if not ok_json or type(threads) ~= "table" then
+        vim.notify("notmuch search: failed to parse JSON output", vim.log.levels.ERROR)
+      else
+        -- Store thread IDs (no 'thread:' prefix is ever displayed, so no
+        -- conceal tricks are needed) and format aligned display lines.
+        local display_lines = {}
+        local ids = {}
+        for _, t in ipairs(threads) do
+          if t.thread then
+            table.insert(ids, t.thread)
+            table.insert(display_lines, format_thread(t))
+          end
+        end
+        pcall(vim.api.nvim_buf_set_var, buf, "notmuch_thread_ids", ids)
+        -- Save display lines for :e prevention (BufReadCmd will restore)
+        pcall(vim.api.nvim_buf_set_var, buf, "notmuch_saved_lines", display_lines)
+
+        -- Paste lines into the tail of `buf`
+        vim.bo[buf].modifiable = true
+        vim.api.nvim_buf_set_lines(buf, -1, -1, false, display_lines)
+        vim.bo[buf].modifiable = false
+      end
+    end
+
     -- Call the completion callback
     on_complete()
   end))
 
-  -- Helper variable for maintaining incomplete lines between reads
-  local partial_data = ""
-
-  -- Read data from stdout and write it to the buffer
-  vim.loop.read_start(stdout, vim.schedule_wrap(function(_, data)
+  -- Read data from stdout and accumulate it for JSON parsing on exit
+  vim.loop.read_start(stdout, function(_, data)
     if data then
-      -- Combine earlier incomplete chunk with newest read
-      partial_data = partial_data .. data
-      local lines = vim.split(partial_data, '\n')
-      -- collect incomplete line at the tail of lines
-      partial_data = table.remove(lines)
-
-      -- Check if buffer is still valid before writing
-      -- This prevents errors when buffer is deleted (e.g., during refresh)
-      if not vim.api.nvim_buf_is_valid(buf) then
-        handle:kill()
-        return
-      end
-
-      -- Store thread IDs and hide 'thread:' prefix (never visible, even on
-      -- cursor line - fixes concealcursor=n showing it). Remove prefix entirely
-      -- so date starts at column 0 (no indent) and keep syntax working.
-      local display_lines = {}
-      local ok, ids = pcall(vim.api.nvim_buf_get_var, buf, "notmuch_thread_ids")
-      if not ok or type(ids) ~= "table" then
-        ids = {}
-        pcall(vim.api.nvim_buf_set_var, buf, "notmuch_thread_ids", ids)
-      end
-      for _, line in ipairs(lines) do
-        local tid = line:match("^thread:([0-9a-fA-F]+)")
-        if tid then
-          table.insert(ids, tid)
-          -- Remove 'thread:<id>' and following spaces (no indent, date at col 0)
-          local prefix = line:match("^thread:[0-9a-fA-F]+%s*")
-          if prefix then
-            line = line:sub(#prefix + 1)
-          else
-            line = line:gsub("^thread:[0-9a-fA-F]+", "")
-          end
-        end
-        table.insert(display_lines, line)
-      end
-      -- Ensure buffer var is updated (table is reference, but set again for safety)
-      pcall(vim.api.nvim_buf_set_var, buf, "notmuch_thread_ids", ids)
-      -- Save display lines for :e prevention (BufReadCmd will restore)
-      pcall(vim.api.nvim_buf_set_var, buf, "notmuch_saved_lines", display_lines)
-
-      -- Paste lines into the tail of `buf`
-      vim.bo[buf].modifiable = true
-      vim.api.nvim_buf_set_lines(buf, -1, -1, false, display_lines)
-      vim.bo[buf].modifiable = false
+      table.insert(chunks, data)
     end
-  end))
+  end)
 
   -- Log errors from stderr
   vim.loop.read_start(stderr, vim.schedule_wrap(function(err, _)
