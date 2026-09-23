@@ -61,7 +61,7 @@ highlight link nmTags		Comment
 " ----------------------------------------------------------
 " nmThreadUnread / nmThreadRead:
 " Aligned thread list produced by `notmuch search --format=json`:
-" ICON DD/MM/YY HH:MM(14)  Subject(30)  From(10)  (tags)  [matched/total]
+" ICON DD/MM/YY HH:MM(14)  Subject(40)  From(25)  (tags)  [matched/total]
 " The leading icon is U+F01EE (closed envelope) for threads tagged `unread`
 " and U+F01EF (opened envelope) otherwise; each state has its own region so
 " the icon gets its own color via matchgroup (NotmuchUnreadMail/ReadMail).
@@ -77,7 +77,7 @@ highlight link nmTags		Comment
 syntax region nmThreadUnread	matchgroup=nmUnreadIcon start=/^\%U000F01EE/ end=/$/	oneline contains=nmDateA
 syntax region nmThreadRead	matchgroup=nmReadIcon start=/^\%U000F01EF/ end=/$/	oneline contains=nmDateA
 syntax match nmDateA		/\s\+\d\d\/\d\d\/\d\d \d\d:\d\d/	contained nextgroup=nmSubjectA
-syntax match nmSubjectA		/\s\{2\}.\{-\}\ze\s\{2\}.\{10}\s\{2\}([^()]*)\s\+\[\d\+\/\d\+\]$/	contained nextgroup=nmFromA
+syntax match nmSubjectA		/\s\{2\}.\{-\}\ze\s\{2\}.\{25}\s\{2\}([^()]*)\s\+\[\d\+\/\d\+\]$/	contained nextgroup=nmFromA
 syntax match nmFromA		/\s\{2\}.\{-\}\ze\s\{2\}([^()]*)\s\+\[\d\+\/\d\+\]$/			contained nextgroup=nmTagsA
 syntax match nmTagsA		/\s\+([^()]*)/				contained nextgroup=nmThreadCountA
 syntax match nmThreadCountA	/\s\+\[\d\+\/\d\+\]/			contained

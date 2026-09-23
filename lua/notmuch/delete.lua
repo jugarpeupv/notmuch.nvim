@@ -14,14 +14,14 @@ local confirm_purge = function()
 	})
 
 	if choice == 1 then
-		v.nvim_command("silent ! notmuch search --output=files --format=text0 tag:del and tag:/./ | xargs -0 rm")
+		v.nvim_command("silent ! notmuch search --output=files --format=text0 tag:del | xargs -0 rm")
 		v.nvim_command("silent ! notmuch new")
 		r.refresh_search_buffer()
 	end
 end
 
 d.purge_del = function()
-	nm.search_terms("tag:del and tag:/./")
+	nm.search_terms("tag:del")
 	-- Set keymap for purgin
 	vim.keymap.set("n", "DD", function()
 		confirm_purge()

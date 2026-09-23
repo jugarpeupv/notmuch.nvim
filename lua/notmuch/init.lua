@@ -154,7 +154,7 @@ nm.search_terms = function(search, jumptothreadid)
   v.nvim_win_set_buf(0, buf)
 
   local hint_text =
-  "Hints: <Enter>: Open thread | <C-v>: Vsplit | <C-s>: Split | q: Close | r: Refresh | %: Sync maildir | a: Archive | A: Archive and Read | +/-/=: Add, remove, toggle tag | o: Sort | dd: Delete"
+  "Hints: <Enter>: Open thread | r: Refresh | %: Sync maildir | x: Mark read | D: Deleted | +/-/=: Add, remove, toggle tag | o: Sort | dd: Delete"
   v.nvim_buf_set_lines(buf, 0, 2, false, { hint_text, "" })
 
   -- Async notmuch search to make the UX non blocking
@@ -350,6 +350,9 @@ nm.show_thread = function(s)
   v.nvim_win_set_cursor(0, { 1, 0})
   vim.bo.filetype="mail"
   vim.bo.modifiable = false
+  -- Snapshot for the :e guard (see refresh_thread_buffer): BufReadPre does
+  -- NOT fire for nofile buffers, so the snapshot is taken at write time.
+  pcall(vim.api.nvim_buf_set_var, buf, "notmuch_saved_thread_lines", v.nvim_buf_get_lines(buf, 0, -1, false))
   vim.wo.conceallevel = 0
   vim.wo.concealcursor = ""
 

@@ -84,6 +84,11 @@ r.refresh_thread_buffer = function()
   v.nvim_win_set_cursor(0, { 1, 0 })
   vim.bo.modifiable = false
 
+  -- Snapshot for the :e guard (BufReadCmd restores this instantly, then a
+  -- real refresh runs). Saved here and in show_thread: BufReadPre does NOT
+  -- fire for nofile buffers, so it cannot be captured at :e time.
+  pcall(v.nvim_buf_set_var, buf, "notmuch_saved_thread_lines", v.nvim_buf_get_lines(buf, 0, -1, false))
+
   print("Thread refreshed")
 end
 

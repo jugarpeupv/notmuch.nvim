@@ -26,6 +26,14 @@ function! s:NotmuchEditRefresh() abort
   endif
   setlocal nomodifiable
   set nomodified
+  " :e clears buffer-local syntax items without refiring FileType, so force
+  " a reload (syntax files with a b:current_syntax guard need it removed).
+  if &l:syntax != ''
+    let l:syn = &l:syntax
+    unlet! b:current_syntax
+    setlocal syntax=
+    let &l:syntax = l:syn
+  endif
   lua vim.schedule(function() require('notmuch.refresh').refresh_search_buffer() end)
 endfunction
 
@@ -52,14 +60,10 @@ nnoremap <buffer> - :TagRm<Space>
 xnoremap <buffer> - :TagRm<Space>
 nnoremap <buffer> = :TagToggle<Space>
 xnoremap <buffer> = :TagToggle<Space>
-nnoremap <buffer> a <Cmd>TagToggle inbox<CR>j
-xnoremap <buffer> a :TagToggle inbox<CR>
-nnoremap <buffer> A <Cmd>TagRm inbox unread<CR>j
-xnoremap <buffer> A :TagRm inbox unread<CR>
-nnoremap <buffer> x <Cmd>TagToggle unread<CR>
-xnoremap <buffer> x :TagToggle unread<CR>
-nnoremap <buffer> f <Cmd>TagToggle flagged<CR>j
-xnoremap <buffer> f :TagToggle flagged<CR>
+nnoremap <buffer> x <Cmd>TagRm unread<CR>
+xnoremap <buffer> x :TagRm unread<CR>
+nnoremap <buffer> F <Cmd>TagToggle flagged<CR>j
+xnoremap <buffer> F :TagToggle flagged<CR>
 nnoremap <buffer> C <Cmd>call v:lua.require('notmuch.send').compose()<CR>
 nnoremap <buffer> dd <Cmd>DelThread<CR>j
 xnoremap <buffer> d :DelThread<CR>

@@ -48,11 +48,57 @@ local ICON_READ = vim.fn.nr2char(0xF01EF) -- nf-md-email_open: opened envelope (
 
 --- Formats a single thread object from `notmuch search --format=json` into an
 --- aligned display line:
----   ICON DD/MM/YY HH:MM(14)  Subject(30)  From(10)  (tags)  [matched/total]
+---   ICON DD/MM/YY HH:MM(14)  Subject(40)  From(25)  (tags)  [matched/total]
 --- The date uses `os.date`, which renders in the user's local timezone.
 --- The icon reflects the `unread` tag; its color comes from the
 --- `NotmuchUnreadMail` / `NotmuchReadMail` highlight groups (see syntax file).
-local function format_thread(t)
+--- Reduces a From/authors string to a display name: trims, strips `<mail>`
+--- to the human name, falls back to the mailbox part for bare `<mail@host>`,
+--- and fits to 25 display cells.
+local function clean_from(s)
+  local from = vim.trim(s or "")
+  local name = from:match("^(.-)%s*<")
+  if name and vim.trim(name) ~= "" then
+    from = vim.trim(name)
+  end
+  -- A bare "<mail@host>" (no display name) falls back to the mailbox part.
+  if from:match("^<.*>$") then
+    from = from:gsub("[<>]", ""):match("^[^@]+") or from
+  end
+  return fit(from, 25)
+end
+
+--- Finds the newest message's From header in `notmuch show --format=json`
+--- output (array of threads, each a tree of [message, replies] nodes).
+--- Returns nil when no timestamped message is found.
+local function newest_from(show_json)
+  local best_ts, best_from = -1, nil
+  local function walk(nodes)
+    for _, node in ipairs(nodes) do
+      if type(node) == "table" then
+        local msg, replies = node[1], node[2]
+        if type(msg) == "table" and type(msg.timestamp) == "number" and msg.timestamp > best_ts then
+          best_ts = msg.timestamp
+          best_from = (msg.headers or {}).From
+        end
+        if type(replies) == "table" then
+          walk(replies)
+        end
+      end
+    end
+  end
+  for _, thread in ipairs(show_json) do
+    if type(thread) == "table" then
+      walk(thread)
+    end
+  end
+  if best_from and vim.trim(best_from) ~= "" then
+    return best_from
+  end
+  return nil
+end
+
+local function format_thread(t, from_override)
   local tag_list = t.tags or {}
   local unread = false
   for _, tag in ipairs(tag_list) do
@@ -63,20 +109,19 @@ local function format_thread(t)
   end
   local icon = unread and ICON_UNREAD or ICON_READ
   local date = os.date("%d/%m/%y %H:%M", t.timestamp or os.time())
-  local subject = fit(t.subject or "", 30)
-  -- `authors` may be "Alice, Bob" or "Name <mail>"; keep first human name only.
-  local authors = t.authors or ""
-  local from = authors:match("^[^,|;]+") or authors
-  from = vim.trim(from)
-  local name = from:match("^(.-)%s*<")
-  if name and vim.trim(name) ~= "" then
-    from = vim.trim(name)
+  local subject = fit(t.subject or "", 40)
+  -- Without an override, use the last name of the query-matching part of
+  -- `authors` (oldest-first, `|` splits off non-matching authors) as a fast
+  -- approximation; multi-author threads get refined to the true latest
+  -- replier by refine_latest_authors() below.
+  local from
+  if from_override and from_override ~= "" then
+    from = clean_from(from_override)
+  else
+    local authors = t.authors or ""
+    local matched = authors:match("^[^|]+") or authors
+    from = clean_from(matched:match("[^,;]+$") or matched)
   end
-  -- A bare "<mail@host>" (no display name) falls back to the mailbox part.
-  if from:match("^<.*>$") then
-    from = from:gsub("[<>]", ""):match("^[^@]+") or from
-  end
-  from = fit(from, 10)
   local tags = "(" .. table.concat(t.tags or {}, " ") .. ")"
   local count = string.format("[%d/%d]", t.matched or 0, t.total or 0)
   local line = string.format("%s %s  %s  %s  %s  %s", icon, date, subject, from, tags, count)
@@ -84,6 +129,94 @@ local function format_thread(t)
   -- Parentheses truncate gsub's second return (substitution count) so callers
   -- like table.insert(line) don't see a spurious third argument.
   return (line:gsub("[\r\n]", " "))
+end
+
+--- Refines the From column to the true latest replier for multi-author
+--- threads. Single-author threads already show the exact sender, so only
+--- threads whose `authors` string holds several names get one cheap
+--- `notmuch show --body=false` lookup each (at most MAX_CONCURRENT in
+--- flight). Lines are updated in place once answers arrive; failures keep
+--- the last-of-authors approximation rendered initially.
+local function refine_latest_authors(buf, threads)
+  local queue = {}
+  for i, t in ipairs(threads) do
+    if t.thread and t.authors and t.authors:find("[,|;]") then
+      table.insert(queue, { idx = i, tid = t.thread })
+    end
+  end
+  if #queue == 0 then
+    return
+  end
+  local MAX_CONCURRENT = 8
+  local active = 0
+  local pump
+  pump = function()
+    if not vim.api.nvim_buf_is_valid(buf) then
+      return
+    end
+    while active < MAX_CONCURRENT and #queue > 0 do
+      local item = table.remove(queue, 1)
+      active = active + 1
+      local stdout = vim.loop.new_pipe(false)
+      local stderr = vim.loop.new_pipe(false)
+      local out = {}
+      local function done()
+        active = active - 1
+        pump()
+      end
+      local h, err = vim.loop.spawn("notmuch", {
+        args = { "show", "--format=json", "--body=false", "--exclude=false", "thread:" .. item.tid },
+        stdio = { nil, stdout, stderr },
+      }, vim.schedule_wrap(function()
+        stdout:close()
+        stderr:close()
+        if h then
+          h:close()
+        end
+        if vim.api.nvim_buf_is_valid(buf) then
+          local ok_json, show_json = pcall(vim.json.decode, table.concat(out))
+          if ok_json and type(show_json) == "table" then
+            local latest = newest_from(show_json)
+            if latest then
+              -- The user may have re-sorted since; locate the line by ID.
+              local ok_ids, ids = pcall(vim.api.nvim_buf_get_var, buf, "notmuch_thread_ids")
+              if ok_ids and type(ids) == "table" then
+                for pos, id in ipairs(ids) do
+                  if id == item.tid then
+                    local fresh = format_thread(threads[item.idx], latest)
+                    vim.bo[buf].modifiable = true
+                    pcall(vim.api.nvim_buf_set_lines, buf, pos + 1, pos + 2, false, { fresh })
+                    vim.bo[buf].modifiable = false
+                    break
+                  end
+                end
+              end
+            end
+          end
+        end
+        done()
+      end))
+      if not h then
+        stdout:close()
+        stderr:close()
+        vim.notify("notmuch latest-author lookup failed: " .. tostring(err), vim.log.levels.WARN)
+        active = active - 1
+        vim.schedule(pump)
+      else
+        vim.loop.read_start(stdout, function(_, data)
+          if data then
+            table.insert(out, data)
+          end
+        end)
+        vim.loop.read_start(stderr, vim.schedule_wrap(function(e, _)
+          if e then
+            vim.notify("ERROR: " .. e)
+          end
+        end))
+      end
+    end
+  end
+  pump()
 end
 
 a.run_notmuch_search = function(search, buf, on_complete)
@@ -131,6 +264,10 @@ a.run_notmuch_search = function(search, buf, on_complete)
         vim.bo[buf].modifiable = true
         vim.api.nvim_buf_set_lines(buf, -1, -1, false, display_lines)
         vim.bo[buf].modifiable = false
+
+        -- Resolve the true latest replier for multi-author threads; lines
+        -- refresh in place as answers arrive (failures keep the initial text).
+        refine_latest_authors(buf, threads)
       end
     end
 
