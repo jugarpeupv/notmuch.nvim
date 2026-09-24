@@ -615,11 +615,9 @@ related to buffers:
       ICON DD/MM/YY HH:MM  Subject (40)  From (25)  (tags)  [matched/total]
     The date renders in your local timezone. Subject and From are
     truncated/padded to a fixed width (counted in display cells, so emoji
-    or CJK text never shifts the columns). From shows the latest sender:
-    lines render instantly with the last matching author, then threads
-    with several authors get one cheap `notmuch show --body=false`
-    lookup each (max 8 in flight) to replace it with the true newest
-    replier. The leading icon is a Nerd
+    or CJK text never shifts the columns). From shows the participant
+    list newest-first (notmuch reports authors oldest-first), cut at the
+    field width. The leading icon is a Nerd
     Font envelope: closed for threads tagged `unread`, opened otherwise
     (see |notmuch-syntax-highlight| for its colors). The sign column is
     hidden in this buffer.
