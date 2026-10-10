@@ -1,7 +1,8 @@
 
 if match(bufname("%"), "^thread:") != -1
 	setlocal foldmethod=marker
-	setlocal foldlevel=0
+	" Create message folds but leave them open (use <Enter> to toggle one)
+	setlocal foldlevel=99
 
 	" Make :e refresh the thread view instead of emptying this scratch
 	" buffer (it is not a real file). Content is restored instantly from

@@ -21,7 +21,10 @@ local a = {}
 --- Truncation and padding both count display cells (not characters), so wide
 --- chars such as emoji or CJK never shift the columns that follow.
 local function fit(s, width)
-  s = (s or ""):gsub("[\r\n]+", " ")
+  -- Collapse all whitespace runs (leading blank padding like Outlook's
+  -- 43-space subject prefix, tabs, folded newlines) so visible text starts
+  -- at column 0 of the field instead of being pushed out of it.
+  s = vim.trim((s or ""):gsub("%s+", " "))
   local out, cells = {}, 0
   local n = vim.fn.strchars(s)
   for i = 0, n - 1 do
