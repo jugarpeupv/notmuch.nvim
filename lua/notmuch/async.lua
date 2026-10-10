@@ -141,13 +141,16 @@ a.run_notmuch_search = function(search, buf, on_complete)
           end
         end
         pcall(vim.api.nvim_buf_set_var, buf, "notmuch_thread_ids", ids)
-        -- Save display lines for :e prevention (BufReadCmd will restore)
-        pcall(vim.api.nvim_buf_set_var, buf, "notmuch_saved_lines", display_lines)
+        -- Save full buffer snapshot (headers + threads) for :e / BufReadCmd
+        pcall(vim.api.nvim_buf_set_var, buf, "notmuch_saved_lines", vim.api.nvim_buf_get_lines(buf, 0, -1, false))
 
         -- Paste lines into the tail of `buf`
         vim.bo[buf].modifiable = true
         vim.api.nvim_buf_set_lines(buf, -1, -1, false, display_lines)
         vim.bo[buf].modifiable = false
+
+        -- Update snapshot now that display_lines are inserted
+        pcall(vim.api.nvim_buf_set_var, buf, "notmuch_saved_lines", vim.api.nvim_buf_get_lines(buf, 0, -1, false))
 
       end
     end

@@ -564,14 +564,21 @@ T.show_thread = function(threadid)
   -- Reset inline images accumulator for this thread
   T.reset_inline_images()
 
-  -- Run `notmuch show` with JSON format
-  local res = vim.system({
+  -- Run `notmuch show` with JSON format. Only pass `--include-html` when the user
+  -- actually configured HTML rendering (`render_html_body = true`). Otherwise
+  -- notmuch extracts and dumps dozens of megabytes of raw HTML that the plugin
+  -- immediately discards, slowing down large threads (e.g. 55MB vs 11MB).
+  local show_cmd = {
     'notmuch', 'show',
     '--format=json',
     '--exclude=false',
-    '--include-html',
-    'thread:' .. threadid
-  }):wait()
+  }
+  if config.options.render_html_body then
+    table.insert(show_cmd, '--include-html')
+  end
+  table.insert(show_cmd, 'thread:' .. threadid)
+
+  local res = vim.system(show_cmd):wait()
 
   -- Check for `notmuch show` execution error
   if res.code ~= 0 then

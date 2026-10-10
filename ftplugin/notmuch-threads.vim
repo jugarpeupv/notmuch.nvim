@@ -2,11 +2,10 @@ setlocal nowrap
 setlocal conceallevel=3
 setlocal concealcursor=
 setlocal signcolumn=no
-" Make :e behave like r (refresh) in this scratch buffer (not a real file)
-" Save state before :e clears the buffer, restore it in BufReadCmd so there
-" is no empty flash, then schedule a real refresh (deferred to avoid
-" re-entrancy: refresh does bwipeout + re-search).
-autocmd BufReadPre <buffer> if line('$') > 1 || getline(1) != '' | let b:notmuch_saved_lines = getline(1, '$') | let b:notmuch_saved_ids = get(b:, 'notmuch_thread_ids', []) | let b:notmuch_saved_lnum = line('.') | endif
+" Make :e behave like r (refresh) in this scratch buffer (not a real file).
+" Content is restored instantly from b:notmuch_saved_lines (taken at write
+" time, because BufReadPre does NOT fire for nofile buffers), then a real
+" refresh runs deferred.
 autocmd BufReadCmd <buffer> call s:NotmuchEditRefresh()
 function! s:NotmuchEditRefresh() abort
   " :e with a file argument: allow the normal edit, drop our guard

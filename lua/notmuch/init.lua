@@ -139,11 +139,15 @@ nm.search_terms = function(search, jumptothreadid)
   local escaped_search = vim.fn.escape(search, '^$.*~[]\\')
   local bufno = vim.fn.bufnr('^' .. escaped_search .. '$')
   if bufno ~= -1 then
-    -- Buffer exists, switch to it without refreshing
-    -- This preserves cursor position and navigation state
-    -- Users can press 'r' to explicitly refresh if needed
-    v.nvim_win_set_buf(0, bufno)
-    return true
+    local line_count = v.nvim_buf_line_count(bufno)
+    local first_line = (line_count > 0) and v.nvim_buf_get_lines(bufno, 0, 1, false)[1] or ""
+    -- Only reuse if buffer has actual content (Hints line + at least one thread or real line).
+    -- If a previous load was interrupted or emptied (e.g. via :e), wipe and reload fresh.
+    if line_count > 2 and first_line:find("Hints:") == 1 then
+      v.nvim_win_set_buf(0, bufno)
+      return true
+    end
+    v.nvim_buf_delete(bufno, { force = true })
   end
   local buf = v.nvim_create_buf(true, true)
   v.nvim_buf_set_name(buf, search)
@@ -156,6 +160,10 @@ nm.search_terms = function(search, jumptothreadid)
   local hint_text =
   "Hints: <Enter>: Open thread | r: Refresh | %: Sync maildir | x: Mark read | D: Deleted | +/-/=: Add, remove, toggle tag | o: Sort | dd: Delete"
   v.nvim_buf_set_lines(buf, 0, 2, false, { hint_text, "" })
+  -- Snapshot headers immediately so :e / BufReadCmd restores them even if
+  -- executed while the background search process is still running.
+  pcall(v.nvim_buf_set_var, buf, "notmuch_saved_lines", { hint_text, "" })
+  pcall(v.nvim_buf_set_var, buf, "notmuch_thread_ids", {})
 
   -- Async notmuch search to make the UX non blocking
   require('notmuch.async').run_notmuch_search(search, buf, function()

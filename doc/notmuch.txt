@@ -258,8 +258,11 @@ top and the message body below. Sending is handled by `msmtp`.
 Replying~
 
   In thread view, press `R` to reply to the message under the cursor. This
-  creates a compose buffer pre-populated with the reply headers and quoted
-  message text (via `notmuch reply`).
+  creates a compose buffer pre-populated with the reply headers. By default
+  the quoted body of previous messages is omitted (`include_original_response
+  = false`) so the compose buffer starts with a clean, empty message body.
+  Set `include_original_response = true` if you prefer the quoted text
+  included inline.
 
 Sending~
 
@@ -364,18 +367,18 @@ option will be listed with its default value.
 
 *from*
   Value used for the `From:` header when composing a new mail with |C| or
-  `:ComposeMail`. Replies are not affected; their headers come from the
-  output of `notmuch reply`.
+  `:ComposeMail`, as well as when replying (|R|).
 
   Default value:
     Built from `user.name` and `user.primary_email` in your `notmuch` config.
 
 *from_cmd*
   Shell command whose stdout replaces the `From:` header when composing new
-  mail. The command is run every time a compose buffer is created, so its
-  output may be dynamic (e.g. fetching secrets from a password manager). If
-  the command fails or outputs nothing, the value of |from| is used and a
-  warning is shown. Useful to avoid storing your address in dotfiles: >
+  mail or replying (|R|). The command is run every time a compose/reply
+  buffer is created, so its output may be dynamic (e.g. fetching secrets
+  from a password manager). If the command fails or outputs nothing, the
+  value of |from| is used and a warning is shown. Useful to avoid storing
+  your address in dotfiles: >
 
     require('notmuch').setup({
       from_cmd = 'pass show mail/from', -- prints "Name <you@example.com>"
