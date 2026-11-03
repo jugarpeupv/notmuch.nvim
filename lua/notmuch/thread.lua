@@ -160,9 +160,10 @@ local function render_html(raw)
     return { "[ w3m not installed - press 'a' to view attachments ]" }
   end
 
-  -- Run w3m to render the `raw` HTML content
+  -- Run w3m to render the `raw` HTML content. `display_link_number=1` appends
+  -- numbered references so link targets can be inspected or opened manually.
   local ok, res = pcall(function()
-    return vim.system({ 'w3m', '-T', 'text/html', '-dump' }, {
+    return vim.system({ 'w3m', '-T', 'text/html', '-dump', '-o', 'display_link_number=1' }, {
       text = true,
       stdin = raw,
     }):wait()
@@ -177,11 +178,37 @@ local function render_html(raw)
   return vim.split(res.stdout or '', '\n', { plain = true, trimempty = true })
 end
 
+--- Fetches the decoded content of a single MIME part.
+--- Used to lazy-load HTML bodies without pulling every HTML part of a thread.
+---@param msg_id string|nil
+---@param part_id integer|string|nil
+---@return string|nil
+local function fetch_part_content(msg_id, part_id)
+  if not msg_id or not part_id then
+    return nil
+  end
+  local ok, res = pcall(function()
+    return vim.system({
+      'notmuch', 'show', '--exclude=false', '--part=' .. tostring(part_id), 'id:' .. msg_id,
+    }, { text = true }):wait()
+  end)
+  if not ok or not res or res.code ~= 0 or not res.stdout or res.stdout == '' then
+    return nil
+  end
+  return res.stdout
+end
+
 --- Processes the MIME body parts and adds them to buffer lines
 ---
 --- Walks the MIME tree and handles each part type appropriately:
 --- - multipart/*: Recurses into child parts
+--- - multipart/alternative: shows text/plain when `render_html_body` is false,
+---   text/html when it is true
 --- - text/* (inline): Adds content directly
+--- - text/html:
+---     * `render_html_body = true`: rendered via w3m
+---     * `render_html_body = false` and a plain part is displayed: skipped
+---     * `render_html_body = false` for HTML-only messages: rendered via w3m
 --- - attachments (with filename): Adds marker with filename and hint
 --- - other inline (images, etc): Adds type marker
 ---
@@ -221,13 +248,53 @@ local function process_body_parts(body, msg_id, line_offset)
     collect_cids(body)
   end
 
-  local function walk(parts, parent_type)
+  --- Returns true when `parts` contains a non-empty, displayable text/plain
+  --- part. Used to decide whether an HTML alternative is redundant.
+  local function has_plain_part(parts)
+    for _, part in ipairs(parts or {}) do
+      local ct = part['content-type'] or ''
+      if ct == 'text/plain' and not part.filename
+          and type(part.content) == 'string' and part.content:match('%S') then
+        return true
+      end
+      if ct:match('^multipart/') and ct ~= 'multipart/alternative'
+          and type(part.content) == 'table'
+          and has_plain_part(part.content) then
+        return true
+      end
+    end
+    return false
+  end
+
+  local message_has_plain = has_plain_part(body)
+
+  --- Whether plain text wins over HTML for this part.
+  ---
+  --- Only applies when `render_html_body = false`: a plain alternative (or any
+  --- plain part in the message) is preferred over HTML.
+  ---@param ctx table { in_alternative?: boolean, plain_present?: boolean }
+  local function plain_wins(ctx)
+    if config.options.render_html_body then
+      return false
+    end
+    return message_has_plain or (ctx.in_alternative and ctx.plain_present)
+  end
+
+  --- @param ctx table { in_alternative?: boolean, plain_present?: boolean }
+  local function walk(parts, ctx)
+    ctx = ctx or {}
     for _, part in ipairs(parts) do
       local content_type = part['content-type'] or ''
 
-      if content_type:match('^multipart/') then
-        -- Multipart envelope -> recurse through child parts
-        walk(part.content, content_type)
+      if content_type:match('^multipart/alternative') then
+        walk(part.content, {
+          in_alternative = true,
+          plain_present = has_plain_part(part.content),
+        })
+      elseif content_type:match('^multipart/') then
+        -- Multipart envelope -> recurse through child parts, keeping the
+        -- enclosing alternative context (e.g. multipart/related inside it).
+        walk(part.content, ctx)
       elseif part.filename then
         -- Definitely an attachment -> display to user and hint for viewing
         table.insert(lines, string.format(
@@ -236,7 +303,11 @@ local function process_body_parts(body, msg_id, line_offset)
         ))
         table.insert(lines, "")
       elseif content_type == 'text/plain' and part.content then
-        if parent_type ~= 'multipart/alternative' or not config.options.render_html_body then
+        -- With `render_html_body` enabled the HTML alternative wins, so skip
+        -- the plain part of a multipart/alternative in that case.
+        local skip = ctx.in_alternative and ctx.plain_present
+          and config.options.render_html_body
+        if not skip then
           -- Always show inline plain text (including signatures, etc.)
           -- Also scan for bare [cid:filename@...] references that Outlook and
           -- similar clients embed directly in the plain-text alternative.
@@ -264,65 +335,73 @@ local function process_body_parts(body, msg_id, line_offset)
           end
           table.insert(lines, "")
         end
-      elseif content_type == 'text/html' and part.content then
-        if not config.options.render_html_body then
-          -- User prefers plain text output. Hide HTML content with hint marker
-          if parent_type == 'multipart/alternative' then
-            table.insert(lines, "[ text/html (alternative) - press 'a' to view ]")
+      elseif content_type == 'text/html' then
+        if plain_wins(ctx) then
+          -- The plain-text part is displayed instead (render_html_body=false).
+        else
+          -- HTML content is fetched on demand (the thread fetch may omit
+          -- `--include-html` to avoid dumping tens of megabytes per thread).
+          local html = part.content
+          if not html and msg_id and part.id then
+            html = fetch_part_content(msg_id, part.id)
+          end
+
+          if not html then
+            table.insert(lines, "[ text/html - press 'a' to view ]")
             table.insert(lines, "")
           else
-            table.insert(lines, "[ text/html (hidden) - press 'a' to view ]")
-            table.insert(lines, "")
-          end
-        else -- config.options.render_html_body == true
-          -- Before rendering with w3m, extract the ordered list of CID filenames
-          -- from the raw HTML.  w3m strips the filename and only outputs "[cid]",
-          -- so we must capture the mapping *before* the text dump loses it.
-          -- The order of [cid] tokens in the w3m output matches the order of
-          -- <img src="cid:..."> tags in the source HTML.
-          local ordered_cids = {}
-          if msg_id then
-            for cid_ref in part.content:gmatch('[Cc][Ii][Dd]:([^"\'> \t\r\n]+)') do
-              -- cid_ref may be "filename.png@domain" or just "filename.png"
-              -- Extract bare filename (everything before the first '@' if present)
-              local filename = cid_ref:match('^([^@]+)') or cid_ref
-              table.insert(ordered_cids, filename)
+            -- Render the HTML with w3m. This also covers HTML-only
+            -- messages when `render_html_body = false`, so they are converted
+            -- to text instead of leaving an empty body.
+            -- Before rendering, extract the ordered list of CID filenames
+            -- from the raw HTML.  w3m strips the filename and only outputs "[cid]",
+            -- so we must capture the mapping *before* the text dump loses it.
+            -- The order of [cid] tokens in the w3m output matches the order of
+            -- <img src="cid:..."> tags in the source HTML.
+            local ordered_cids = {}
+            if msg_id then
+              for cid_ref in html:gmatch('[Cc][Ii][Dd]:([^"\'> \t\r\n]+)') do
+                -- cid_ref may be "filename.png@domain" or just "filename.png"
+                -- Extract bare filename (everything before the first '@' if present)
+                local filename = cid_ref:match('^([^@]+)') or cid_ref
+                table.insert(ordered_cids, filename)
+              end
             end
-          end
 
-          local html_content = render_html(part.content)
+            local html_content = render_html(html)
 
-          -- Match each "[cid]" token in the rendered output (in order) to the
-          -- filename we captured from the raw HTML.
-          if msg_id and #ordered_cids > 0 then
-            local cid_index = 1
-            local base_line = line_offset + #lines + 1
-            for i, rendered_line in ipairs(html_content) do
-              -- A line may contain one or more bare [cid] tokens
-              local _, count = rendered_line:gsub('%[cid%]', '')
-              local col_idx = 0
-              for _ = 1, count do
-                if cid_index <= #ordered_cids then
-                  local filename = ordered_cids[cid_index]
-                  local part_id = cid_map[filename] or cid_map[filename:lower()]
-                  if part_id then
-                    table.insert(_inline_images, {
-                      line = base_line + i - 1,
-                      col = col_idx,
-                      msg_id = msg_id,
-                      filename = filename,
-                      part_id = part_id,
-                    })
-                    col_idx = col_idx + 1
+            -- Match each "[cid]" token in the rendered output (in order) to the
+            -- filename we captured from the raw HTML.
+            if msg_id and #ordered_cids > 0 then
+              local cid_index = 1
+              local base_line = line_offset + #lines + 1
+              for i, rendered_line in ipairs(html_content) do
+                -- A line may contain one or more bare [cid] tokens
+                local _, count = rendered_line:gsub('%[cid%]', '')
+                local col_idx = 0
+                for _ = 1, count do
+                  if cid_index <= #ordered_cids then
+                    local filename = ordered_cids[cid_index]
+                    local part_id = cid_map[filename] or cid_map[filename:lower()]
+                    if part_id then
+                      table.insert(_inline_images, {
+                        line = base_line + i - 1,
+                        col = col_idx,
+                        msg_id = msg_id,
+                        filename = filename,
+                        part_id = part_id,
+                      })
+                      col_idx = col_idx + 1
+                    end
+                    cid_index = cid_index + 1
                   end
-                  cid_index = cid_index + 1
                 end
               end
             end
-          end
 
-          vim.list_extend(lines, html_content)
-          table.insert(lines, "")
+            vim.list_extend(lines, html_content)
+            table.insert(lines, "")
+          end
         end
       elseif part.content then
         table.insert(lines, string.format("[ %s (inline) - press 'a' to view attachments ]", content_type))
@@ -331,7 +410,7 @@ local function process_body_parts(body, msg_id, line_offset)
     end
   end
 
-  walk(body, nil)
+  walk(body, {})
   return lines
 end
 
@@ -564,10 +643,13 @@ T.show_thread = function(threadid)
   -- Reset inline images accumulator for this thread
   T.reset_inline_images()
 
-  -- Run `notmuch show` with JSON format. Only pass `--include-html` when the user
-  -- actually configured HTML rendering (`render_html_body = true`). Otherwise
-  -- notmuch extracts and dumps dozens of megabytes of raw HTML that the plugin
-  -- immediately discards, slowing down large threads (e.g. 55MB vs 11MB).
+  -- Fetch the thread without HTML content by default (`--include-html` omitted):
+  -- notmuch would otherwise dump dozens of megabytes of raw HTML that most
+  -- messages never display. HTML parts are fetched on demand per message when
+  -- they actually need rendering (see process_body_parts).
+  --
+  -- When `render_html_body` is enabled almost every message renders its HTML,
+  -- so a single `--include-html` fetch is cheaper than one subprocess per part.
   local show_cmd = {
     'notmuch', 'show',
     '--format=json',

@@ -68,7 +68,7 @@ H.default_view_handler = function(attachment)
   -- HTML files (most common)
   if filetype:match('^text/html$') or ext:match('^html?$') then
     return try_commands({
-      { tool = 'w3m',    command = function(p) return { 'w3m', '-T', 'text/html', '-dump', p } end },
+      { tool = 'w3m',    command = function(p) return { 'w3m', '-T', 'text/html', '-dump', '-o', 'display_link_number=1', p } end },
       { tool = 'lynx',   command = function(p) return { 'lynx', '-dump', '-nolist', p } end },
       { tool = 'elinks', command = function(p) return { 'elinks', '-dump', '-no-references', p } end },
     }) or "HTML file (install w3m, lynx, or elinks to view)"

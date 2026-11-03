@@ -1,20 +1,11 @@
+--- Asynchronous `notmuch search` support.
+---
+--- `notmuch search --format=json` is consumed incrementally: JSON objects are
+--- parsed in bounded batches as data arrives, and rendered thread lines are
+--- appended to the buffer progressively. This keeps Neovim responsive and
+--- avoids retaining the complete response in memory.
 local a = {}
 
--- Runs `notmuch search` asynchronously
---
--- This function leverages the `vim.loop` library to spawn a subprocess and
--- asynchronously run the `notmuch` search query in the background so it does
--- not block `nvim`s event loop and allow seamless UX while results flow in
---
--- @param search string: search term to query. see `notmuch-search-terms(7)`
--- @param buf int: refers to the buffer id to write the output to
--- @param on_complete func: callback function to execute once process completes
---
--- @usage
--- -- Refer to `init.lua` for example invocation
--- require('notmuch.async').run_notmuch_search('tag:inbox', 0, function()
---   print('Notmuch search process completed.')
--- end)
 --- Fits a string into exactly `width` display cells (utf-safe).
 --- Embedded newlines (e.g. from folded RFC2822 headers in `subject`/`authors`)
 --- are flattened first: `nvim_buf_set_lines` rejects items containing `\n`.
@@ -49,12 +40,6 @@ end
 local ICON_UNREAD = vim.fn.nr2char(0xF01EE) -- nf-md-email: closed envelope (unread)
 local ICON_READ = vim.fn.nr2char(0xF01EF) -- nf-md-email_open: opened envelope (read)
 
---- Formats a single thread object from `notmuch search --format=json` into an
---- aligned display line:
----   ICON DD/MM/YY HH:MM(14)  Subject(40)  From(25)  (tags)  [matched/total]
---- The date uses `os.date`, which renders in the user's local timezone.
---- The icon reflects the `unread` tag; its color comes from the
---- `NotmuchUnreadMail` / `NotmuchReadMail` highlight groups (see syntax file).
 --- Reduces a single author string to a display name: trims, strips `<mail>`
 --- to the human name, falls back to the mailbox part for bare `<mail@host>`.
 local function clean_name(s)
@@ -70,6 +55,12 @@ local function clean_name(s)
   return from
 end
 
+--- Formats a single thread object from `notmuch search --format=json` into an
+--- aligned display line:
+---   ICON DD/MM/YY HH:MM(14)  Subject(40)  From(25)  (tags)  [matched/total]
+--- The date uses `os.date`, which renders in the user's local timezone.
+--- The icon reflects the `unread` tag; its color comes from the
+--- `NotmuchUnreadMail` / `NotmuchReadMail` highlight groups (see syntax file).
 local function format_thread(t)
   local tag_list = t.tags or {}
   local unread = false
@@ -103,75 +94,238 @@ local function format_thread(t)
   return (line:gsub("[\r\n]", " "))
 end
 
-a.run_notmuch_search = function(search, buf, on_complete)
-  -- Set up pipes for stdout and stderr to capture command output
-  local stdout = vim.loop.new_pipe(false)
-  local stderr = vim.loop.new_pipe(false)
+--- Stream `notmuch search --format=json`, decoding records incrementally.
+---
+--- Unlike a plain `vim.system():wait()`, this never buffers the whole JSON
+--- document: complete objects are decoded in bounded batches
+--- (`records_per_tick` / `bytes_per_tick`) and handed to `handlers.on_records`
+--- as soon as they are available.
+---
+--- @param query string search terms (see `notmuch-search-terms(7)`)
+--- @param handlers table { on_records?: fun(records):boolean?, on_complete?: fun(result) }
+---        Returning `false` from `on_records` cancels the stream.
+--- @param options? table { sort?: string, records_per_tick?: integer, bytes_per_tick?: integer }
+--- @return table request Cancellable handle with a `kill()` method.
+function a.stream_notmuch_search(query, handlers, options)
+  options = options or {}
+  local parser = require("notmuch.search.stream").new()
+  local model = require("notmuch.search.model")
+  local seen, index = {}, 0
 
-  -- Accumulate raw stdout; `--format=json` yields a single JSON document that
-  -- is parsed once the process exits (keeps UX non-blocking via the loop).
-  local chunks = {}
+  local request = {
+    cancelled = false,
+    scheduled = false,
+    stdout_done = false,
+    exited = nil,
+    stderr = "",
+    completed = false,
+  }
 
-  -- Spawn subprocess using vim.loop (deprecated?)
-  local handle
-  handle = vim.loop.spawn("notmuch", {
-    args = {"search", "--format=json", search},
-    stdio = {nil, stdout, stderr}
-  }, vim.schedule_wrap(function()
-    -- Close the pipes and handle
-    stdout:close()
-    stderr:close()
-    handle:close()
+  function request:kill(signal)
+    if self.cancelled then
+      return
+    end
+    self.cancelled = true
+    if self.process then
+      pcall(self.process.kill, self.process, signal or 15)
+    end
+  end
 
-    -- Check if buffer is still valid before writing
-    -- This prevents errors when buffer is deleted (e.g., during refresh)
-    if vim.api.nvim_buf_is_valid(buf) then
-      local ok_json, threads = pcall(vim.json.decode, table.concat(chunks))
-      if not ok_json or type(threads) ~= "table" then
-        vim.notify("notmuch search: failed to parse JSON output", vim.log.levels.ERROR)
-      else
-        -- Store thread IDs (no 'thread:' prefix is ever displayed, so no
-        -- conceal tricks are needed) and format aligned display lines.
-        local display_lines = {}
-        local ids = {}
-        for _, t in ipairs(threads) do
-          if t.thread then
-            table.insert(ids, t.thread)
-            table.insert(display_lines, format_thread(t))
-          end
+  local function complete(result)
+    if request.completed or request.cancelled then
+      return
+    end
+    request.completed = true
+    result.stderr = request.stderr ~= "" and request.stderr or result.stderr
+    if handlers.on_complete then
+      handlers.on_complete(result)
+    end
+  end
+
+  local drain
+  local function schedule_drain()
+    if request.scheduled or request.cancelled or request.completed then
+      return
+    end
+    request.scheduled = true
+    vim.schedule(function()
+      request.scheduled = false
+      drain()
+    end)
+  end
+
+  drain = function()
+    if request.cancelled or request.completed then
+      return
+    end
+    local objects, parse_error =
+      parser:drain(options.records_per_tick or 64, options.bytes_per_tick or 128 * 1024)
+    local records = {}
+    if not parse_error then
+      for _, text in ipairs(objects) do
+        index = index + 1
+        local record, err = model.decode_record(text, index, seen)
+        if not record then
+          parse_error = err
+          break
         end
-        pcall(vim.api.nvim_buf_set_var, buf, "notmuch_thread_ids", ids)
-        -- Save full buffer snapshot (headers + threads) for :e / BufReadCmd
-        pcall(vim.api.nvim_buf_set_var, buf, "notmuch_saved_lines", vim.api.nvim_buf_get_lines(buf, 0, -1, false))
-
-        -- Paste lines into the tail of `buf`
-        vim.bo[buf].modifiable = true
-        vim.api.nvim_buf_set_lines(buf, -1, -1, false, display_lines)
-        vim.bo[buf].modifiable = false
-
-        -- Update snapshot now that display_lines are inserted
-        pcall(vim.api.nvim_buf_set_var, buf, "notmuch_saved_lines", vim.api.nvim_buf_get_lines(buf, 0, -1, false))
-
+        records[#records + 1] = record
       end
     end
-
-    -- Call the completion callback
-    on_complete()
-  end))
-
-  -- Read data from stdout and accumulate it for JSON parsing on exit
-  vim.loop.read_start(stdout, function(_, data)
-    if data then
-      table.insert(chunks, data)
+    if #records > 0 and handlers.on_records then
+      if handlers.on_records(records) == false then
+        request:kill()
+        return
+      end
     end
+    if parse_error then
+      if request.process then
+        pcall(request.process.kill, request.process, 15)
+      end
+      complete({ code = -1, parse_error = parse_error })
+      return
+    end
+    if parser:has_input() then
+      schedule_drain()
+      return
+    end
+    if request.stdout_done and request.exited then
+      if request.exited.code == 0 then
+        local _, finish_error = parser:finish()
+        if finish_error then
+          complete({ code = -1, signal = request.exited.signal, parse_error = finish_error })
+          return
+        end
+      end
+      complete(request.exited)
+    end
+  end
+
+  local args = { "notmuch", "search", "--format=json" }
+  if options.sort then
+    args[#args + 1] = "--sort=" .. options.sort
+  end
+  args[#args + 1] = query
+
+  local ok, process = pcall(vim.system, args, {
+    text = true,
+    stdout = function(err, data)
+      if request.cancelled or request.completed then
+        return
+      end
+      if err then
+        request.stderr = (request.stderr .. tostring(err)):sub(1, 8192)
+      end
+      if data then
+        parser:feed(data)
+      else
+        request.stdout_done = true
+      end
+      schedule_drain()
+    end,
+    stderr = function(_, data)
+      if data and #request.stderr < 8192 then
+        request.stderr = (request.stderr .. data):sub(1, 8192)
+      end
+    end,
+  }, function(result)
+    request.exited = result
+    schedule_drain()
   end)
 
-  -- Log errors from stderr
-  vim.loop.read_start(stderr, vim.schedule_wrap(function(err, _)
-    if err then
-      vim.notify("ERROR: " .. err)
+  if not ok then
+    vim.schedule(function()
+      complete({ code = -1, stderr = tostring(process) })
+    end)
+    return request
+  end
+
+  request.process = process
+  return request
+end
+
+--- Asynchronously runs `notmuch search` and appends rendered thread lines to
+--- `buf` as records arrive.
+---
+--- This keeps the historical interface used by `init.lua`: thread IDs and a
+--- full-buffer snapshot are stored in buffer-local variables so tag operations,
+--- refreshes, and the `:e` guard keep working.
+---
+--- @param search string search term to query. see `notmuch-search-terms(7)`
+--- @param buf integer buffer id to write the output to
+--- @param on_complete fun() callback executed once the process completes
+--- @return table request cancellable handle
+a.run_notmuch_search = function(search, buf, on_complete)
+  local ids = {}
+
+  local function append(records)
+    if not vim.api.nvim_buf_is_valid(buf) then
+      return false
     end
-  end))
+    local display_lines = {}
+    for _, t in ipairs(records) do
+      if t.thread then
+        table.insert(ids, t.thread)
+        table.insert(display_lines, format_thread(t))
+      end
+    end
+    if #display_lines == 0 then
+      return true
+    end
+
+    -- Paste lines into the tail of `buf`
+    vim.bo[buf].modifiable = true
+    vim.api.nvim_buf_set_lines(buf, -1, -1, false, display_lines)
+    vim.bo[buf].modifiable = false
+
+    -- Keep IDs in sync after every batch so tag operations work on partial
+    -- results. The full `:e` snapshot is refreshed once at completion to
+    -- avoid copying the whole buffer on every batch.
+    pcall(vim.api.nvim_buf_set_var, buf, "notmuch_thread_ids", ids)
+    return true
+  end
+
+  local request = a.stream_notmuch_search(search, {
+    on_records = append,
+    on_complete = function(result)
+      if vim.api.nvim_buf_is_valid(buf) then
+        pcall(
+          vim.api.nvim_buf_set_var,
+          buf,
+          "notmuch_saved_lines",
+          vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+        )
+      end
+
+      if result.parse_error then
+        vim.notify("notmuch search: failed to parse JSON output", vim.log.levels.ERROR)
+      elseif result.code ~= 0 then
+        vim.notify(
+          "notmuch search failed: " .. (result.stderr or ("exit code " .. tostring(result.code))),
+          vim.log.levels.ERROR
+        )
+      end
+
+      -- Keep the completion callback even when the query changed nothing.
+      if on_complete then
+        on_complete()
+      end
+    end,
+  })
+
+  -- Stop the subprocess as soon as the results buffer is gone (e.g. `q`,
+  -- refresh's `bwipeout`, or a replaced query).
+  if vim.api.nvim_buf_is_valid(buf) then
+    vim.api.nvim_create_autocmd("BufWipeout", {
+      buffer = buf,
+      once = true,
+      callback = function()
+        request:kill()
+      end,
+    })
+  end
+
+  return request
 end
 
 return a

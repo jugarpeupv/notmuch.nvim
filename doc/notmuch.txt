@@ -544,14 +544,19 @@ option will be listed with its default value.
 <
 
 *render_html_body*
-  Controls whether HTML email bodies are rendered inline in thread view using
-  `w3m`. When enabled, the plugin will convert HTML content to plain text for
-  display in the buffer. This is useful for emails that are sent as HTML-only
-  or where the HTML version contains better formatting than the text/plain
-  alternative.
+  Controls how messages that provide HTML are displayed in thread view:
 
-  When disabled (the default), HTML parts are hidden with a marker indicating
-  they can be viewed via the attachment interface (press 'a').
+  - `false` (default): use the `text/plain` part when the message has one
+    (`multipart/alternative`). HTML-only messages are converted to text with
+    `w3m`, so nothing is hidden or left blank.
+  - `true`: render HTML with `w3m` (with numbered link references). For
+    `multipart/alternative` messages the HTML part is used and the plain part
+    is skipped.
+
+  HTML bodies are fetched on demand, one message part at a time, so large
+  threads do not pay for HTML they never display. If `w3m` is not available
+  when rendering is requested, HTML parts fall back to a marker pointing at
+  the attachment interface (press 'a').
 
   Note: Requires `w3m` to be installed. If w3m is not available, a fallback
   message is displayed instead.
@@ -739,6 +744,11 @@ and usable during these operations.
     searches in the Notmuch database. As results are retrieved, they are 
     displayed incrementally in the Threads Buffer, allowing users to begin 
     interacting with results while the search continues.
+  - Results are streamed as structured JSON: `notmuch search --format=json`
+    output is parsed incrementally in bounded batches, so the full response
+    is never buffered and Neovim stays responsive on large mailboxes.
+    Closing the search buffer cancels the running query, and refreshing
+    preserves the selected thread.
 
 - *Asynchronous Synchronization* ~
   - The |:NmSync| command synchronizes the local Maildir with the remote 
@@ -898,10 +908,20 @@ plugin's project codebase.
     - Pure Lua implementation for portability.
 
   - **async.lua**:
-    - Provides non-blocking subprocess execution via vim.loop.spawn().
+    - Provides non-blocking subprocess execution via `vim.system()`.
     - Used for asynchronous operations like searching and syncing.
     - Ensures the UI remains responsive during long-running operations.
-    - Streams results incrementally as they become available.
+    - `stream_notmuch_search()` decodes `notmuch search --format=json`
+      incrementally in bounded batches and emits records as they arrive.
+
+  - **search/stream.lua**:
+    - Incremental JSON-array parser for streamed `notmuch search` output.
+    - Yields complete top-level objects as soon as they are available.
+    - Bounds work per event-loop tick by record count and byte count.
+
+  - **search/model.lua**:
+    - Validates and normalizes decoded search records (thread ID, counts,
+      timestamps, authors, subject, tags).
 
   - **refresh.lua**:
     - Handles buffer refresh logic for all buffer types.

@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Streamed `notmuch search --format=json` results: records are decoded in
+  bounded batches (`lua/notmuch/search/stream.lua`) and rendered progressively,
+  so large searches no longer buffer the complete JSON response. Closing the
+  search buffer cancels the running query. `async.lua` exposes
+  `stream_notmuch_search()` alongside the existing `run_notmuch_search()`.
+- HTML mail rendering (and HTML attachment previews) now numbers links and
+  lists their URLs via `w3m -o display_link_number=1`.
 - Persistent drafts: new mail and replies are now written to a `draft_dir`
   (default: `stdpath('data') .. '/notmuch/drafts'`) instead of per-session
   temp files, so unfinished drafts survive Neovim restarts. Draft files are
@@ -16,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Thread view body selection follows `render_html_body`:
+  `multipart/alternative` shows `text/plain` when `false` and `w3m`-rendered
+  `text/html` when `true`; HTML-only messages are converted to text with
+  `w3m` in both cases (they are never left blank). HTML parts are fetched on
+  demand, so large threads do not pull every HTML body.
 - Attachment filenames with `/` characters are now sanitized to prevent directory path errors when saving
 
 ## [0.3.0] - 2026-02-11

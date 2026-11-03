@@ -165,8 +165,10 @@ nm.search_terms = function(search, jumptothreadid)
   pcall(v.nvim_buf_set_var, buf, "notmuch_saved_lines", { hint_text, "" })
   pcall(v.nvim_buf_set_var, buf, "notmuch_thread_ids", {})
 
-  -- Async notmuch search to make the UX non blocking
-  require('notmuch.async').run_notmuch_search(search, buf, function()
+  -- Async, incrementally streamed search: JSON records are decoded in bounded
+  -- batches and rendered as they arrive, so Neovim never blocks on the whole
+  -- response and results become usable before the query finishes.
+  local request = require('notmuch.async').run_notmuch_search(search, buf, function()
     -- Check if buffer is still valid (might have been deleted during refresh)
     if not v.nvim_buf_is_valid(buf) then
       return
@@ -199,6 +201,10 @@ nm.search_terms = function(search, jumptothreadid)
       end
     end
   end)
+  -- Expose the cancellable stream handle (killed automatically on BufWipeout).
+  if request then
+    pcall(v.nvim_buf_set_var, buf, "notmuch_search_request", request)
+  end
 
   -- Set cursor at head of buffer, declare filetype, and disable modifying
   v.nvim_win_set_cursor(0, { 1, 0 })
