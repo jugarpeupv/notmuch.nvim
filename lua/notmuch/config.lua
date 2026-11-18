@@ -50,7 +50,6 @@ C.defaults = function()
     draft_dir = vim.fn.stdpath('data') .. '/notmuch/drafts',
     signature_file = nil,
     maildir_sync_cmd = 'mbsync -a',
-    open_cmd = 'xdg-open',
     logfile = nil,
     sync = {
       sync_mode = "buffer",  -- "background" | "buffer" | "terminal"

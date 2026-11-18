@@ -20,9 +20,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (default: `stdpath('data') .. '/notmuch/drafts'`) instead of per-session
   temp files, so unfinished drafts survive Neovim restarts. Draft files are
   deleted automatically after a successful send.
+- Attachment opening now prefers `vim.ui.open()` when available, falling back
+  to the OS-specific opener command.
+
+### Removed
+
+- Removed the unused internal `notmuch.float` module (floating attachment
+  viewing is handled by the attachment viewer).
+- Removed the unused `open_cmd` configuration option; the opener now uses
+  `vim.ui.open()` or an OS-specific command automatically.
+- Removed the unused `:FollowPatch` command, the `U` URL-extraction mapping,
+  and the optional `YTerm`/`urlextract` integration.
+
+### Changed
+
+- Migrated all `ftplugin/*.vim` files to Lua (`ftplugin/*.lua`) while
+  preserving the existing buffer options, keymaps, buffer-local commands, and
+  the `:e` refresh guards for search and thread buffers.
 
 ### Fixed
 
+- Attachment MIME parts are now loaded with `vim.system()` argument lists
+  instead of interpolated shell commands, preventing command injection through
+  message IDs.
+- Compose and reply drafts are created with private `0600` permissions, and the
+  drafts directory is restricted to `0700`.
 - Thread view body selection follows `render_html_body`:
   `multipart/alternative` shows `text/plain` when `false` and `w3m`-rendered
   `text/html` when `true`; HTML-only messages are converted to text with

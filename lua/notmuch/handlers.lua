@@ -5,6 +5,15 @@ local H = {}
 H.default_open_handler = function(attachment)
   local path = attachment.path
 
+  -- If `nvim` version >=0.10.0, use `vim.ui.open()`
+  if vim.ui and vim.ui.open then
+    local _, err = vim.ui.open(path)
+    if err then
+      vim.notify('notmuch.nvim: failed to open attachment: ' .. tostring(err), vim.log.levels.ERROR)
+    end
+    return
+  end
+
   -- Detect OS and choose appropriate command
   local open_cmd
   local sysname = vim.uv.os_uname()
@@ -20,7 +29,10 @@ H.default_open_handler = function(attachment)
   end
 
   -- Execute
-  vim.system({ open_cmd, path }, { detach = true })
+  local ok, err = pcall(vim.system, { open_cmd, path }, { detach = true })
+  if not ok then
+    vim.notify('notmuch.nvim: failed to open attachment: ' .. tostring(err), vim.log.levels.ERROR)
+  end
 end
 
 --- Default handler for viewing attachments in the floating window viewer

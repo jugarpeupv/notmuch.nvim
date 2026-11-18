@@ -578,6 +578,23 @@ local build_html_body_mime = function(plain_lines, html_sig_rewritten, inline_im
   end
 end
 
+--- Creates (or truncates) a file with private 0600 permissions.
+--- Drafts contain message bodies and headers, so they must not be
+--- world-readable in shared temp/draft locations.
+--- @param path string
+--- @return boolean ok
+local create_private_file = function(path)
+  local fd, err = vim.uv.fs_open(path, 'w', 384) -- 0600
+  if not fd then
+    vim.notify('notmuch.nvim: could not create private file: ' .. tostring(err), vim.log.levels.ERROR)
+    return false
+  end
+  pcall(vim.uv.fs_close, fd)
+  -- Existing files keep their previous mode; force it either way.
+  pcall(vim.uv.fs_chmod, path, 384)
+  return true
+end
+
 --- Returns the persistent drafts directory, creating it if needed.
 ---
 --- Falls back to nil when no draft_dir is configured, so callers can fall
@@ -591,20 +608,24 @@ local get_draft_dir = function()
   end
 
   vim.fn.mkdir(dir, 'p')
+  -- Drafts are private: keep the directory readable only by the owner.
+  pcall(vim.uv.fs_chmod, dir, 448) -- 0700
   return dir
 end
 
---- Builds a timestamped draft file path inside the drafts directory.
+--- Builds a unique timestamped draft file path inside the drafts directory.
 ---
 --- Falls back to a per-session temp name when draft_dir is not configured.
---- Guarantees a non-existent path even when called twice within one second.
+--- The file is created immediately with private 0600 permissions.
 ---
 --- @param prefix string: filename prefix, e.g. 'compose' or 'reply'
 --- @return string: absolute path to a new draft file
 local new_draft_path = function(prefix)
   local dir = get_draft_dir()
   if not dir then
-    return vim.fn.tempname() .. '-' .. prefix .. '.eml'
+    local path = vim.fn.tempname() .. '-' .. prefix .. '.eml'
+    create_private_file(path)
+    return path
   end
 
   local stamp = os.date('%Y%m%d-%H%M%S')
@@ -616,6 +637,7 @@ local new_draft_path = function(prefix)
     path = string.format('%s/%s-%s-%d.eml', dir, prefix, stamp, n)
   end
 
+  create_private_file(path)
   return path
 end
 
@@ -874,6 +896,13 @@ s.reply = function()
     return
   end
 
+  -- Fresh replies need the draft file to exist before `:edit` so the buffer
+  -- is opened as a file (not as a new file) and the first write does not fail
+  -- with E13 once we create it with private permissions.
+  if not draft_exists then
+    create_private_file(reply_filename)
+  end
+
   -- Open (or reopen) the reply file. Using vim.cmd.edit fires BufReadPost /
   -- BufNewFile so plugins like barbecue attach correctly.
   vim.cmd.edit(reply_filename)
@@ -883,6 +912,9 @@ s.reply = function()
   vim.bo[buf].buflisted = true
 
   if draft_exists then
+    -- Reopened drafts may have been written with a wider umask; force the
+    -- private mode so the message body is never world-readable.
+    pcall(vim.uv.fs_chmod, reply_filename, 384) -- 0600
     -- When reopening an existing draft (saved on disk before our decode fix,
     -- or containing raw RFC2047 words / excessive whitespace), clean up headers
     -- so the user always sees clean, human-readable text.

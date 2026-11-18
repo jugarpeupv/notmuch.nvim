@@ -5,17 +5,6 @@ local v = vim.api
 local config = require('notmuch.config')
 local thread = require('notmuch.thread')
 
-local function show_github_patch(link)
-  local buf = v.nvim_create_buf(true, true)
-  v.nvim_buf_set_name(buf, link)
-  v.nvim_win_set_buf(0, buf)
-  v.nvim_command("silent 0read! curl -Ls " .. link)
-  v.nvim_win_set_cursor(0, { 1, 0})
-  v.nvim_buf_set_lines(buf, -2, -1, true, {})
-  vim.bo.filetype = "gitsendemail"
-  vim.bo.modifiable = false
-end
-
 --- MIME part information table
 ---@class MimePart
 ---@field id number The notmuch part ID (e.g., 2, 3, 4)
@@ -91,16 +80,17 @@ a.open_attachment_part = function()
     local tmpdir = '/tmp/notmuch_html_' .. vim.fn.getpid() .. '_' .. part.id
     vim.fn.mkdir(tmpdir, 'p')
 
-    -- Extract the raw HTML content
-    local html_cmd = string.format(
-      "notmuch show --exclude=false --part=%d '%s'",
-      part.id, msg_id
-    )
-    local html_raw = vim.fn.system(html_cmd)
-    if vim.v.shell_error ~= 0 then
+    -- Extract the raw HTML content (argument list, no shell interpolation)
+    local html_proc = vim.system({
+      'notmuch', 'show', '--exclude=false',
+      '--part=' .. tostring(part.id),
+      msg_id,
+    }):wait()
+    if html_proc.code ~= 0 then
       vim.notify('notmuch: failed to extract HTML part', vim.log.levels.ERROR)
       return nil
     end
+    local html_raw = html_proc.stdout or ''
 
     -- Collect all CID references from the HTML: src="cid:FILENAME@DOMAIN"
     -- Build a set of unique filenames to extract.
@@ -111,11 +101,14 @@ a.open_attachment_part = function()
     end
 
     -- Get the full MIME tree to map filename -> part id
-    local json_cmd = string.format(
-      "notmuch show --exclude=false --format=json '%s'", msg_id
-    )
-    local json_raw = vim.fn.system(json_cmd)
-    local ok, parsed = pcall(vim.fn.json_decode, json_raw)
+    local json_proc = vim.system(
+      { 'notmuch', 'show', '--exclude=false', '--format=json', msg_id },
+      { text = true }
+    ):wait()
+    local ok, parsed = false, nil
+    if json_proc.code == 0 then
+      ok, parsed = pcall(vim.json.decode, json_proc.stdout or '')
+    end
     local part_map = {}  -- bare_filename -> part_id
     if ok and parsed then
       local function collect(parts)
@@ -164,11 +157,18 @@ a.open_attachment_part = function()
       if pid then
         local safe = bare:gsub('/', '-')
         local img_path = tmpdir .. '/' .. safe
-        local extract_cmd = string.format(
-          "notmuch show --exclude=false --part=%d '%s' > %s",
-          pid, msg_id, vim.fn.shellescape(img_path)
-        )
-        vim.fn.system(extract_cmd)
+        local img_proc = vim.system({
+          'notmuch', 'show', '--exclude=false',
+          '--part=' .. tostring(pid),
+          msg_id,
+        }):wait()
+        if img_proc.code == 0 and img_proc.stdout then
+          local img_file = io.open(img_path, 'wb')
+          if img_file then
+            img_file:write(img_proc.stdout)
+            img_file:close()
+          end
+        end
       end
     end
 
@@ -497,12 +497,21 @@ a.save_attachment_part = function(savedir, prompt_user)
     filepath = dir .. '/' .. filename
   end
 
-  -- Save the file using notmuch (properly escape filepath)
-  local cmd = string.format("notmuch show --exclude=false --part=%d '%s' > %s",
-    part.id, id, vim.fn.shellescape(filepath))
-  vim.fn.system(cmd)
+  -- Save the file using notmuch (argument list, no shell interpolation)
+  local save_proc = vim.system({
+    'notmuch', 'show', '--exclude=false',
+    '--part=' .. tostring(part.id),
+    id,
+  }):wait()
 
-  if vim.v.shell_error == 0 then
+  if save_proc.code == 0 and save_proc.stdout ~= nil then
+    local out, open_err = io.open(filepath, 'wb')
+    if not out then
+      vim.notify('Failed to save attachment: ' .. tostring(open_err), vim.log.levels.ERROR)
+      return nil
+    end
+    out:write(save_proc.stdout)
+    out:close()
     print('Saved to: ' .. filepath)
     return filepath
   else
@@ -536,16 +545,35 @@ a.get_attachments_from_cursor_msg = function()
     return nil
   end
 
+  -- Load the MIME structure before creating the buffer, so a failed
+  -- `notmuch show` does not leave an empty attachment window behind.
+  local process = vim.system({
+    'notmuch', 'show', '--exclude=false', '--part=0', '--format=json',
+    'id:' .. id,
+  }, { text = true }):wait()
+
+  if process.code ~= 0 then
+    vim.notify(
+      'Failed to inspect message attachments: ' .. (process.stderr or 'notmuch show failed'),
+      vim.log.levels.ERROR
+    )
+    return nil
+  end
+
+  local ok, result = pcall(vim.json.decode, process.stdout or '')
+  if not ok or type(result) ~= 'table' or type(result.body) ~= 'table' then
+    vim.notify('Failed to parse message attachment data', vim.log.levels.ERROR)
+    return nil
+  end
+
+  local parts_list = {}
+  parse_mime_tree(result['body'][1], parts_list)
+  local lines = format_part_line(parts_list)
+
   -- Create new attachment listing buffer (`notmuch-attach`)
   v.nvim_command('belowright 8new')
   v.nvim_buf_set_name(0, 'id:' .. id)
   vim.bo.buftype = "nofile"
-
-  -- Get all MIME parts from `msg` in JSON format
-  local result = vim.json.decode(vim.fn.system("notmuch show --exclude=false --part=0 --format=json 'id:" .. id .. "'"))
-  local parts_list = {}
-  parse_mime_tree(result['body'][1], parts_list)
-  local lines = format_part_line(parts_list)
 
   -- Save MIME parts list to buffer local variable
   v.nvim_buf_set_var(0, 'mime_parts_list', parts_list)
@@ -556,30 +584,6 @@ a.get_attachments_from_cursor_msg = function()
   v.nvim_win_set_cursor(0, { 1, 0 })
   vim.bo.filetype="notmuch-attach"
   vim.bo.modifiable = false
-end
-
-a.get_urls_from_cursor_msg = function()
-  if vim.fn.exists(':YTerm') == 0 then
-    print("Can't launch URL selector (:YTerm command not found)")
-    return nil
-  end
-  local id = thread.get_current_message_id()
-  if id == nil then return nil end
-  v.nvim_command('YTerm "notmuch show id:' .. id .. ' | urlextract"')
-end
-
-a.follow_github_patch = function(line)
-  -- https://github.com/neomutt/neomutt/pull/2774.patch
-  local link = string.match(line, 'http[s]://github%.com/.+/.+/pull/%d+%.patch')
-  if link == nil then
-    return nil
-  end
-  local bufno = vim.fn.bufnr(link)
-  if bufno ~= -1 then
-    v.nvim_win_set_buf(0, bufno)
-  else
-    show_github_patch(link)
-  end
 end
 
 return a

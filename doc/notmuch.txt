@@ -18,6 +18,7 @@ CONTENTS                                                     *notmuch-contents*
     Completion                          |notmuch-completion|
   Behavior                              |notmuch-behavior|
     Buffers                             |notmuch-buffers|
+    Keymaps                             |notmuch-keymaps|
     Buffer-Local Variables              |notmuch-buffer-variables|
     Asynchronous Operations             |notmuch-async|
     Highlighting                        |notmuch-syntax-highlight|
@@ -77,15 +78,24 @@ Here is a non-comprehensive list of features of notmuch.nvim:
   - Sync command can be extended and modified
 - Search your notmuch database asynchronously
   - Non-blocking: do your thing while results pour in
+  - Streamed JSON: results are decoded incrementally in bounded batches and
+    rendered progressively; closing the buffer cancels the query
+  - Aligned thread list with unread/read icon, local date, subject,
+    participants, tags and message counts
   - Any search term accepted by `notmuch-search-terms(1)`
     - Completion provided with the `:NmSearch` command
   - Returns a list of threads
 - Tagging threads/messages
   - Add, remove, or toggle one or more tags at once
   - Inspect all tags pertinent to thread/msg
-- GitHub compatibility features
-  - Follow pull request patches
-- Extract URLs with a script
+- Reply-aware header handling
+  - Detects which of your addresses received the message and uses it for
+    `From:`
+  - Unfolds, decodes and re-encodes RFC 2047 headers
+  - Removes your own address from the initial reply `To`/`Cc` template
+- HTML rendering with `w3m` (numbered link references) or plain-text
+  preference, configurable per message type
+- Health diagnostics via `:checkhealth notmuch`
 
 ------------------------------------------------------------------------------
 REQUIREMENTS                                             *notmuch-requirements*
@@ -123,12 +133,12 @@ Notmuch~
 
       `Notmuch`: https://notmuchmail.org
 
-w3m (Optional)~
+w3m (Recommended)~
 
-  The w3m text-based browser is used for rendering HTML email bodies inline
-  when the |render_html_body| option is enabled. Without w3m installed, HTML
-  emails will display a placeholder with instructions to view via the
-  attachment interface.
+  The w3m text-based browser is used for rendering HTML email bodies. Even
+  with |render_html_body| disabled, HTML-only messages are converted to text
+  with w3m so they are never blank; without w3m they show a hint pointing at
+  the attachment interface.
 
       `w3m`: http://w3m.sourceforge.net/
 
@@ -264,6 +274,22 @@ Replying~
   Set `include_original_response = true` if you prefer the quoted text
   included inline.
 
+  Reply headers are normalized automatically:
+
+  - `From:` uses the address that actually received the message (detected
+    from its recipients and maildir/tags), falling back to |from_cmd| and then
+    |from|.
+  - Your own address is removed from the initial `To`/`Cc`; adding it back
+    manually is preserved and sent.
+  - Folded headers are unfolded, RFC 2047 encoded words are decoded for
+    editing and re-encoded when sending, and Outlook-style whitespace in the
+    subject is collapsed.
+
+  HTML handling follows |render_html_body|: `multipart/alternative` messages
+  show their plain text when it is `false` and the `w3m`-rendered HTML when it
+  is `true`; HTML-only messages are always converted to text so they are never
+  blank.
+
 Sending~
 
   Once you have composed your email, press `<C-g><C-g>` (configurable via
@@ -285,6 +311,15 @@ ATTACHMENTS                                               *notmuch-attachments*
 
 There are several ways to attach files to an outgoing email. Attachments are
 encoded as base64 MIME parts in the outgoing message.
+
+Outgoing attachments are managed in an editable, oil.nvim-style scratch window
+(see |notmuch-attachment-buffer|). Received attachments are listed with `a` in
+the thread view and can be opened, saved or previewed.
+
+Note: this fork keeps the |open_handler| / |view_handler| callbacks and the
+oil-style outgoing attachment buffer. Upstream 0.5.0 replaced them with
+`attachments.*` / `attach.incoming.*` rule tables, which are not available
+here.
 
 Commands~
                                                     *:Attach*
@@ -311,6 +346,10 @@ Attachment Buffer~
 
   The buffer has a protected header area (title, hints, and separator line)
   and a file area below it. Only the file area is editable.
+
+  Toggle it from a compose/reply buffer with `keymaps.attachment_window`
+  (default `<C-g><C-a>`, e.g. `M` if configured that way), or with the
+  buffer-local `:AttachList` command.
 
   Keymaps in the attachment buffer:
 
@@ -366,18 +405,20 @@ option will be listed with its default value.
     Fetched from `notmuch` config.
 
 *from*
-  Value used for the `From:` header when composing a new mail with |C| or
-  `:ComposeMail`, as well as when replying (|R|).
+  Value used for the `From:` header for new mail with |C| or `:ComposeMail`.
+  For replies (|R|), the address that actually received the message is used
+  first; |from| is the final fallback.
 
   Default value:
     Built from `user.name` and `user.primary_email` in your `notmuch` config.
 
 *from_cmd*
   Shell command whose stdout replaces the `From:` header when composing new
-  mail or replying (|R|). The command is run every time a compose/reply
-  buffer is created, so its output may be dynamic (e.g. fetching secrets
-  from a password manager). If the command fails or outputs nothing, the
-  value of |from| is used and a warning is shown. Useful to avoid storing
+  mail or, as a fallback, when replying (|R|). Reply detection (the address
+  that received the message) takes precedence. The command is run every time a
+  compose/reply buffer is created, so its output may be dynamic (e.g. fetching
+  secrets from a password manager). If the command fails or outputs nothing,
+  the value of |from| is used and a warning is shown. Useful to avoid storing
   your address in dotfiles: >
 
     require('notmuch').setup({
@@ -394,10 +435,26 @@ option will be listed with its default value.
   resumes the existing draft instead of generating a fresh one. A draft file
   is deleted automatically after its email has been sent successfully.
 
-  The directory is created on demand if it does not exist.
+  Draft files are created with private `0600` permissions and the directory is
+  restricted to `0700`. The directory is created on demand if it does not exist.
 
   Default value:
     `~/.local/share/nvim/notmuch/drafts` (`stdpath('data') .. '/notmuch/drafts'`)
+
+*message_order*
+  Order in which messages are listed inside the thread view when no threading
+  indentation is desired: `"newest-first"` or `"oldest-first"`.
+
+  Default value:
+    `"newest-first"`
+
+*include_original_response*
+  When `true`, replies keep the quoted original message as the sendable body.
+  When `false` (default), the quote is dropped and the reply starts with an
+  empty body line.
+
+  Default value:
+    `false`
 
 *signature_file*
   Path to a file whose contents are appended as signature to newly composed
@@ -449,6 +506,13 @@ option will be listed with its default value.
   Default value:
     `mbsync -a`
 
+*logfile*
+  Optional path passed to `msmtp --logfile` when sending, so delivery can be
+  inspected later.
+
+  Default value:
+    `nil`
+
 *sync.sync_mode*
   Controls how the mail synchronization is displayed and managed. This option
   accepts the following values:
@@ -479,7 +543,8 @@ option will be listed with its default value.
   file path.
 
   Default behavior:
-    Automatically detects your OS and uses:
+    Prefers `vim.ui.open()` when available, then falls back to the
+    OS-specific command:
     - `open` on macOS
     - `xdg-open` on Linux
     - `start` on Windows
@@ -520,12 +585,16 @@ option will be listed with its default value.
   Note: See lua/notmuch/handlers.lua for the complete default implementation.
 
 *keymaps*
-  Keymap configuration table where you can override plugin defaults for all
-  sorts of commands. Right now it only supports override for `msmtp` but it
-  will be extended to be able to configure every keymap in the plugin.
+  Keymap configuration table for plugin defaults. Supported keys are
+  `sendmail` (compose/reply) and `attachment_window` (toggle the outgoing
+  attachment scratch window).
 
-  Default value:
-    See `config.lua` for plugin defaults.
+  Default value: >
+    keymaps = {
+      sendmail = '<C-g><C-g>',
+      attachment_window = '<C-g><C-a>',
+    }
+<
 
 *suppress_deprecation_warning*
   Controls whether the plugin shows a warning notification when the installed
@@ -649,6 +718,8 @@ related to buffers:
 
 - *Buffer Refresh* ~
   Buffers can be refreshed dynamically without being closed by pressing `r`.
+  In search and thread buffers, `:e` restores the current content from its
+  snapshot, reloads syntax, and refreshes in place.
 
 - *Buffer Naming* ~
   Buffers are named contextually for better organization:
@@ -660,6 +731,49 @@ related to buffers:
 These features leverage NeoVim's buffer system to deliver a seamless and
 efficient email management experience, making it easier to navigate and
 interact with your email directly from the editor.
+
+------------------------------------------------------------------------------
+KEYMAPS                                                     *notmuch-keymaps*
+
+Keymaps are buffer-local and installed by `ftplugin/*.lua`.
+
+- *Threads Buffer (search results)* ~
+  `<CR>`            Open thread
+  `<C-v>`           Open thread in a vertical split
+  `<C-s>` `<C-x>`   Open thread in a horizontal split
+  `r`               Refresh search (`:e` also restores and refreshes in place)
+  `q`               Close buffer
+  `%`               Sync maildir
+  `+` `-` `=`       Add / remove / toggle tag (also in visual mode)
+  `x`               Remove the `unread` tag in place
+  `F`               Toggle `flagged` and move down
+  `dd` (`d` visual) Tag `del`, remove `inbox`
+  `D`               Open the `tag:del` purge view (`DD` purges files)
+  `o`               Reverse sort
+  `C`               Compose
+
+- *Thread View Buffer* ~
+  `<Enter>`         Toggle message fold
+  `<Tab>` `<S-Tab>` Next / previous message
+  `a`               Attachment listing
+  `r`               Refresh thread (`:e` also restores and refreshes in place)
+  `R` `C`           Reply / compose
+  `+` `-` `=`       Message tag commands
+  `q`               Close buffer
+
+- *Tags Buffer (landing page)* ~
+  `<CR>`            Search the tag on the current line
+  `c`               Count threads for that tag
+  `r` `%`           Refresh tag list / sync maildir
+  `C` `q`           Compose / close
+
+- *Attachment listing Buffer* ~
+  `v` `o` `s`       View / open / save the selected part
+  `q`               Close buffer
+
+- *Compose / Attachment scratch Buffer* ~
+  `<C-g><C-g>`      Send (configurable via |keymaps|)
+  `<C-g><C-a>`      Toggle outgoing attachment window (configurable)
 
 - *Buffer-Local Variables* ~
                                             *notmuch-buffer-variables*
@@ -771,9 +885,9 @@ chosen highlighting rules.
   - Notmuch.nvim uses dedicated syntax rules for different buffer types:
     - **Tags Buffer**: Tags are highlighted to make them easy to identify and
       differentiate.
-    - **Threads Buffer**: Threads are broken down into distinct components,
-      such as thread IDs, subjects, senders, and tags, each with their own
-      highlighting style.
+    - **Threads Buffer**: The aligned row is split into date, subject,
+      participants, tags and message count, each with its own highlight group;
+      the leading unread/read icon uses `NotmuchUnreadMail` / `NotmuchReadMail`.
     - **Thread View Buffer**: Indented replies and folded messages are
       visually structured, making it easy to understand the flow of
       conversations.
@@ -819,6 +933,9 @@ This section provides an overview of the Lua files in the plugin's
 `lua/notmuch/` directory and their purpose (see |notmuch-modules|), aimed at
 developers interested in understanding, modifying, or contributing to the
 codebase.
+
+Buffer-local options, keymaps and commands are defined in `ftplugin/*.lua`
+(see |notmuch-keymaps|).
 
 ------------------------------------------------------------------------------
 LUA MODULES                                                   *notmuch-modules*
@@ -868,7 +985,7 @@ plugin's project codebase.
       - List attachments in a thread.
       - Save attachments to a directory.
       - Open attachments using external programs.
-    - Supports extracting URLs from messages and following GitHub patch links.
+    - Loads MIME parts through argument lists (no shell interpolation).
 
   - **attach_buffer.lua**:
     - Implements the oil.nvim-style attachment buffer for composing emails.
@@ -882,19 +999,29 @@ plugin's project codebase.
 
   - **handlers.lua**:
     - Defines default handlers for opening and viewing attachments.
-    - **default_open_handler()**: OS-aware external opener using open,
-      xdg-open, or start depending on the platform.
+    - **default_open_handler()**: Prefers `vim.ui.open()` when available,
+      falling back to an OS-specific opener (open, xdg-open, start).
     - **default_view_handler()**: Converts various file formats to text for
       in-buffer display. Supports HTML (w3m, lynx, elinks), PDF (pdftotext,
       mutool), images (chafa, catimg, viu, exiftool), Office documents
-      (pandoc, docx2txt), Markdown, and archives (zip, tar).
+      (pandoc, docx2txt), Markdown, and archives (zip, tar). HTML previews use
+      `w3m` with numbered link references.
     - Users can override these handlers via |open_handler| and |view_handler|
       configuration options.
 
+  - **health.lua**:
+    - Implements `:checkhealth notmuch`.
+    - Verifies Neovim version/APIs, LuaJIT FFI, the `notmuch` executable,
+      `libnotmuch`, database path and access, user identity, and optional
+      tools (`msmtp`, `mbsync`, `w3m`).
+
   - **send.lua**:
     - Implements the methods for composing and replying to emails.
-    - Uses `msmtp` as a standard mailsend command
-      - TODO: Will make this command configurable by the user.
+    - Normalizes reply headers: unfolds RFC 5322 continuations, decodes and
+      re-encodes RFC 2047 words, detects the receiving identity for `From:`,
+      and filters the user's own address from the initial reply recipients.
+    - Persists drafts with private `0600` permissions and sends through
+      `msmtp` (`-t --read-envelope-from`).
 
   - **mime.lua**:
     - Handles MIME message construction for email composition.
@@ -927,7 +1054,6 @@ plugin's project codebase.
     - Handles buffer refresh logic for all buffer types.
     - Updates tag lists, search results, thread views, and attachment lists.
     - Preserves cursor position when refreshing buffers.
-    - Integrates with the caching system to efficiently reload content.
 
   - **sync.lua**:
     - Handles synchronization of the Maildir with the remote server.
@@ -935,11 +1061,6 @@ plugin's project codebase.
       by refreshing the Notmuch database with `notmuch new`.
     - Operates asynchronously, ensuring a non-blocking experience.
     - Supports configurable sync modes via the `sync_mode` option.
-
-  - **float.lua**:
-    - Implements floating windows for displaying custom content or terminals.
-    - Includes utility functions for creating bordered floating windows.
-    - Provides an interactive terminal experience integrated with NeoVim.
 
   - **cnotmuch.lua**:
     - A LuaJIT binding to the Notmuch C library (`libnotmuch`).
